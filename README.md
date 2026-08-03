@@ -298,10 +298,31 @@ Required evidence:
 - Add end-to-end integration tests in CI.
 - Add SLO dashboards and observability stack (Prometheus/Grafana).
 
-### Team contribution and plausible Git history
-- Development was performed in small, logical commits (feature-by-feature).
-- Commit history demonstrates iterative implementation (not one bulk dump).
-- For group submission, each member should contribute commits in their own scope.
+### Team contribution (Eigenanteil)
+
+The group has two members. Work was split by coherent subsystems of comparable
+complexity, and the overall contribution of both members is considered equal (50/50).
+
+**Valentyn Mukhanov — Ingestion, Processing & Storage (data path)**
+- Producer / ingestion service: FastAPI edge, Kafka producer, synthetic stream
+  generation and velocity-attack simulation ([services/producer/app.py](services/producer/app.py)).
+- Stream processor: Kafka consumption, merchant enrichment join, fraud scoring,
+  stateful per-card velocity windows and Delta writes
+  ([services/processor/app.py](services/processor/app.py)).
+- Storage concept: Delta Lake on MinIO, `ingest_date` partitioning and schema design.
+
+**Veniamin Nekhoda — Serving, UI & Kubernetes (delivery path)**
+- Serving/query layer: delta-rs endpoints and the event-driven SSE stream
+  ([services/serving/app.py](services/serving/app.py)).
+- User-facing UI: data-provider form and live dashboard wired to the real APIs
+  ([services/ui/html/app.js](services/ui/html/app.js)).
+- Kubernetes deployment: Helm chart, ConfigMap/Secret/PVC, HPA/KEDA autoscaling
+  and the CI pipeline ([deploy/helm/fraud-pipeline](deploy/helm/fraud-pipeline)).
+
+**Shared**
+- Architecture decision (Kappa), README report and end-to-end testing were done jointly.
+- Development followed small, logical commits, so the Git history reflects the
+  iterative, per-feature implementation of both members.
 
 ---
 
