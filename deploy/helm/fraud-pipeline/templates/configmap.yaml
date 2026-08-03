@@ -7,6 +7,7 @@ metadata:
 data:
   KAFKA_BOOTSTRAP: {{ .Values.kafka.bootstrap | quote }}
   KAFKA_TOPIC: "transactions"
+  KAFKA_GROUP_ID: {{ .Values.keda.processor.consumerGroup | quote }}
   S3_ENDPOINT: {{ .Values.minio.endpoint | quote }}
   LAKE_BUCKET: {{ .Values.minio.bucket | quote }}
   WATERMARK_DELAY: {{ .Values.processor.watermarkDelay | quote }}

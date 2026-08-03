@@ -1,0 +1,22 @@
+{{- if .Values.keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: processor-kafka-lag
+  labels:
+    {{- include "fraud-pipeline.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: processor
+  minReplicaCount: {{ .Values.keda.processor.minReplicaCount }}
+  maxReplicaCount: {{ .Values.keda.processor.maxReplicaCount }}
+  pollingInterval: 15
+  cooldownPeriod: 60
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: {{ .Values.kafka.bootstrap | quote }}
+        topic: "transactions"
+        consumerGroup: {{ .Values.keda.processor.consumerGroup | quote }}
+        lagThreshold: {{ .Values.keda.processor.lagThreshold | quote }}
+{{- end }}

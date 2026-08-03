@@ -59,3 +59,11 @@ autoscaling:
     minReplicas: 1
     maxReplicas: 5
     cpuUtilization: 70
+
+keda:
+  enabled: true
+  processor:
+    minReplicaCount: 1
+    maxReplicaCount: 8
+    lagThreshold: "20"
+    consumerGroup: "fraud-processor-group"

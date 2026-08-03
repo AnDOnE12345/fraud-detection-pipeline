@@ -45,6 +45,7 @@ from pyspark.sql.types import (
 # --------------------------------------------------------------------------- #
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "transactions")
+KAFKA_GROUP_ID = os.getenv("KAFKA_GROUP_ID", "fraud-processor-group")
 
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://localhost:9000")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "minioadmin")
@@ -138,6 +139,7 @@ def start_bronze(spark: SparkSession):
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP)
         .option("subscribe", KAFKA_TOPIC)
+        .option("kafka.group.id", KAFKA_GROUP_ID)
         .option("startingOffsets", "earliest")
         .option("failOnDataLoss", "false")
         .load()
