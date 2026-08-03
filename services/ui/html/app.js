@@ -102,6 +102,7 @@ function fillTable(id, rows, mapper) {
 }
 
 async function refresh() {
+  const status = document.getElementById("dashboard-status");
   try {
     const [summary, flagged, velocity] = await Promise.all([
       fetch(`${API_SERVING}/summary`).then((r) => r.json()),
@@ -110,8 +111,11 @@ async function refresh() {
     ]);
 
     renderDashboard(summary, flagged, velocity);
+    status.textContent = "";
+    status.className = "result";
   } catch (e) {
-    // Serving may not be reachable yet; ignore during startup.
+    status.textContent = "Pipeline data is temporarily unavailable.";
+    status.className = "result err";
   }
 }
 
@@ -178,9 +182,15 @@ function connectStream() {
 
   sse.onopen = () => {
     stopFallbackPolling();
+    const status = document.getElementById("dashboard-status");
+    status.textContent = "";
+    status.className = "result";
   };
 
   sse.onerror = () => {
+    const status = document.getElementById("dashboard-status");
+    status.textContent = "Live stream reconnecting; fallback polling is active.";
+    status.className = "result err";
     startFallbackPolling();
     setTimeout(connectStream, 2000);
   };

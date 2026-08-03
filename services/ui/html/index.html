@@ -44,6 +44,7 @@
       <!-- RIGHT: results view -->
       <section class="panel">
         <h2>Live dashboard</h2>
+        <p id="dashboard-status" class="result" role="status" aria-live="polite"></p>
         <div class="cards">
           <div class="card"><span class="num" id="m-processed">0</span><span>Processed</span></div>
           <div class="card danger"><span class="num" id="m-flagged">0</span><span>Flagged</span></div>
@@ -69,7 +70,7 @@
     </main>
 
     <footer>
-      <span>Event-driven live stream (SSE) with fallback polling · serving API via <code>/api/serving</code></span>
+      <span>Live SSE updates with fallback polling · serving API via <code>/api/serving</code></span>
     </footer>
 
     <script src="app.js"></script>
