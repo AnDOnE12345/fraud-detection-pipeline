@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Spark / Delta local runs
+spark-warehouse/
+metastore_db/
+derby.log
+checkpoints/
+_local_data/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Build artifacts
+*.log
+dist/
+build/

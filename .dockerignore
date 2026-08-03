@@ -1,0 +1,12 @@
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/venv/
+**/.env
+.git/
+.github/
+docs/
+*.md
+checkpoints/
+_local_data/
+spark-warehouse/
