@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 # --------------------------------------------------------------------------- #
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "transactions")
+SIMULATE_DELAY_MS = int(os.getenv("SIMULATE_DELAY_MS", "60"))
 
 # Reference merchants (kept in sync with data/merchants.csv used for enrichment)
 MERCHANTS = [
@@ -162,6 +163,12 @@ def _synthetic_transaction(fraud: bool) -> dict:
 class SimulateRequest(BaseModel):
     count: int = Field(default=100, ge=1, le=100_000)
     fraud_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
+    pace_ms: int = Field(
+        default=SIMULATE_DELAY_MS,
+        ge=0,
+        le=2000,
+        description="Delay between generated events in milliseconds.",
+    )
     burst_card: bool = Field(
         default=True,
         description="Emit a rapid burst from one card to trigger velocity rules.",
@@ -172,10 +179,14 @@ class SimulateRequest(BaseModel):
 def simulate(req: SimulateRequest):
     """Generate a synthetic burst of transactions for load / demo purposes."""
     produced = 0
+    delay_s = req.pace_ms / 1000.0
+
     for _ in range(req.count):
         is_fraud = random.random() < req.fraud_ratio
         _publish(_synthetic_transaction(is_fraud))
         produced += 1
+        if delay_s > 0:
+            time.sleep(delay_s)
 
     # Optional: a velocity attack -> many transactions from ONE card quickly.
     if req.burst_card:
@@ -187,9 +198,11 @@ def simulate(req: SimulateRequest):
             event["event_time"] = _now_iso()
             _publish(event)
             produced += 1
+            if delay_s > 0:
+                time.sleep(delay_s)
 
     get_producer().flush(timeout=10)
-    return {"produced": produced, "topic": KAFKA_TOPIC}
+    return {"produced": produced, "topic": KAFKA_TOPIC, "pace_ms": req.pace_ms}
 
 
 if __name__ == "__main__":  # local dev entrypoint
