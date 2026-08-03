@@ -103,6 +103,9 @@ def _recent(df: pd.DataFrame, limit: int) -> list[dict]:
             "amount",
             "fraud_score",
             "is_fraud",
+            "is_late",
+            "event_time_fallback",
+            "velocity_excluded",
         ]
         if c in df.columns
     ]
@@ -161,6 +164,11 @@ def stats(limit: int = Query(100, ge=1, le=1000)):
     df = _read(GOLD_STATS)
     if df.empty:
         return {"items": []}
+    if all(column in df.columns for column in ["window_start", "merchant_category", "updated_at"]):
+        df = (
+            df.sort_values("updated_at")
+            .drop_duplicates(["window_start", "merchant_category"], keep="last")
+        )
     if "window_end" in df.columns:
         df = df.sort_values("window_end", ascending=False)
     return {"items": df.head(limit).to_dict(orient="records")}

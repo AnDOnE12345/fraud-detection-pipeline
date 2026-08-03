@@ -29,6 +29,10 @@ jobs:
       - name: Syntax check
         run: python -m py_compile services/${{ matrix.service }}/app.py
 
+      - name: Processor rule tests
+        if: matrix.service == 'processor'
+        run: python -m unittest discover -s services/processor -p 'test_*.py'
+
   helm-render:
     runs-on: ubuntu-latest
     steps:
@@ -41,7 +45,10 @@ jobs:
       - name: Render Helm chart
         run: |
           helm template fraud-pipeline deploy/helm/fraud-pipeline > rendered.yaml
+          helm template fraud-pipeline deploy/helm/fraud-pipeline \
+            --set keda.enabled=true > rendered-keda.yaml
           test -s rendered.yaml
+          test -s rendered-keda.yaml
 
   docker-build:
     runs-on: ubuntu-latest
