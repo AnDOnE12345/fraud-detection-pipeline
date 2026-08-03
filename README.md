@@ -88,7 +88,7 @@ flowchart LR
 4. Processor computes fraud signals and writes Silver records to Delta on MinIO.
 5. Processor computes Gold aggregates for dashboard and velocity alerts.
 6. Serving API reads Silver/Gold and exposes query endpoints.
-7. UI refreshes dashboard every 5 seconds.
+7. UI receives live dashboard updates via SSE stream, with polling fallback for resilience.
 
 ---
 
@@ -163,7 +163,7 @@ Deployment is declarative via Helm chart:
     - PVC through `volumeClaimTemplates` for Kafka and MinIO
 - Scalability:
     - HPA for producer and serving (CPU metrics)
-    - KEDA `ScaledObject` for processor based on Kafka lag
+    - Optional KEDA `ScaledObject` for processor based on Kafka lag
 
 ---
 
@@ -171,17 +171,32 @@ Deployment is declarative via Helm chart:
 
 ### Prerequisites
 - Kubernetes cluster (Minikube/k3d or university environment)
-- Helm v4+
+- Helm v3+
 - Docker images for all services available in registry
 - Metrics server for HPA targets
 - KEDA operator only if `keda.enabled=true`
 
 ### Build/publish container images (example)
-Adjust image names in `deploy/helm/fraud-pipeline/values.yaml`.
+```bash
+docker build -t local/fraud-producer:dev services/producer
+docker build -t local/fraud-processor:dev services/processor
+docker build -t local/fraud-serving:dev services/serving
+docker build -t local/fraud-ui:dev services/ui
+minikube image load local/fraud-producer:dev
+minikube image load local/fraud-processor:dev
+minikube image load local/fraud-serving:dev
+minikube image load local/fraud-ui:dev
+```
 
 ### Install
 ```bash
-helm upgrade --install fraud-pipeline deploy/helm/fraud-pipeline
+helm upgrade --install fraud-pipeline deploy/helm/fraud-pipeline \
+    --set images.producer=local/fraud-producer:dev \
+    --set images.processor=local/fraud-processor:dev \
+    --set images.serving=local/fraud-serving:dev \
+    --set images.ui=local/fraud-ui:dev \
+    --set global.imagePullPolicy=IfNotPresent \
+    --set keda.enabled=false
 kubectl get pods
 kubectl get svc
 ```
@@ -197,28 +212,28 @@ Then open `http://localhost:8080`.
 ## 10. Wesentliche Codeabschnitte (mit Verlinkung)
 
 - Ingestion edge and simulation:
-    - `services/producer/app.py`
+    - [services/producer/app.py](services/producer/app.py)
     - Accepts UI transactions and writes to Kafka, supports synthetic burst generation.
 
 - Stream processing pipeline:
-    - `services/processor/app.py`
+    - [services/processor/app.py](services/processor/app.py)
     - Kafka consume loop, merchant enrichment, fraud scoring, stateful card-velocity detection, Silver/Gold Delta writes.
 
 - Serving/query layer:
-    - `services/serving/app.py`
+    - [services/serving/app.py](services/serving/app.py)
     - Reads Delta tables and exposes summary/flagged/velocity/stats endpoints.
 
 - UI integration:
-    - `services/ui/html/index.html`
-    - `services/ui/html/app.js`
-    - Transaction form + auto-refresh dashboard wired to real APIs.
+    - [services/ui/html/index.html](services/ui/html/index.html)
+    - [services/ui/html/app.js](services/ui/html/app.js)
+    - Transaction form + live dashboard wired to real APIs.
 
 - Kubernetes manifests and deployment logic:
-    - `deploy/helm/fraud-pipeline/templates/apps.yaml`
-    - `deploy/helm/fraud-pipeline/templates/kafka.yaml`
-    - `deploy/helm/fraud-pipeline/templates/minio.yaml`
-    - `deploy/helm/fraud-pipeline/templates/hpa.yaml`
-    - `deploy/helm/fraud-pipeline/templates/keda.yaml`
+    - [deploy/helm/fraud-pipeline/templates/apps.yaml](deploy/helm/fraud-pipeline/templates/apps.yaml)
+    - [deploy/helm/fraud-pipeline/templates/kafka.yaml](deploy/helm/fraud-pipeline/templates/kafka.yaml)
+    - [deploy/helm/fraud-pipeline/templates/minio.yaml](deploy/helm/fraud-pipeline/templates/minio.yaml)
+    - [deploy/helm/fraud-pipeline/templates/hpa.yaml](deploy/helm/fraud-pipeline/templates/hpa.yaml)
+    - [deploy/helm/fraud-pipeline/templates/keda.yaml](deploy/helm/fraud-pipeline/templates/keda.yaml)
 
 ---
 
@@ -266,6 +281,8 @@ Required evidence:
 - Single-region setup, no cross-cluster disaster recovery.
 - Security hardening is simplified for lab/prototype usage.
 - KEDA requires operator pre-installation in the target cluster and is optional for local runs.
+- Stateful infrastructure (single-node Redpanda and MinIO) is intentionally kept minimal for lab reproducibility; horizontal scaling is demonstrated on stateless services (producer/serving) and optionally processor via KEDA.
+- Late-data treatment is pragmatic (event-time parsing with fallback behavior), not a full watermark-based production strategy.
 
 ### Next steps
 - Add model-based scoring (feature store + online inference).

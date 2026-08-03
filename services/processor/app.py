@@ -24,7 +24,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
-from deltalake import DeltaTable
 from deltalake.writer import write_deltalake
 from kafka import KafkaConsumer
 from kafka.errors import NoBrokersAvailable

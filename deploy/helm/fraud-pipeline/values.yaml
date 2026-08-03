@@ -32,9 +32,7 @@ minio:
 
 processor:
   replicas: 1
-  watermarkDelay: "2 minutes"
-  windowDuration: "1 minute"
-  slideDuration: "30 seconds"
+  windowSeconds: "60"
   highAmount: "800"
   riskThreshold: "0.7"
   velocityThreshold: "10"

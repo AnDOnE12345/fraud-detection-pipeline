@@ -10,9 +10,7 @@ data:
   KAFKA_GROUP_ID: {{ .Values.keda.processor.consumerGroup | quote }}
   S3_ENDPOINT: {{ .Values.minio.endpoint | quote }}
   LAKE_BUCKET: {{ .Values.minio.bucket | quote }}
-  WATERMARK_DELAY: {{ .Values.processor.watermarkDelay | quote }}
-  WINDOW_DURATION: {{ .Values.processor.windowDuration | quote }}
-  SLIDE_DURATION: {{ .Values.processor.slideDuration | quote }}
+  WINDOW_SECONDS: {{ .Values.processor.windowSeconds | quote }}
   HIGH_AMOUNT: {{ .Values.processor.highAmount | quote }}
   RISK_THRESHOLD: {{ .Values.processor.riskThreshold | quote }}
   VELOCITY_THRESHOLD: {{ .Values.processor.velocityThreshold | quote }}
