@@ -129,6 +129,8 @@ Equal weights avoid pretending that the synthetic data supports a learned calibr
 
 The prototype thresholds are deliberately explainable and matched to the synthetic source: ordinary generated purchases are EUR 1-250, whereas suspicious samples start at EUR 800; merchant scores at or above 0.7 represent the high-risk reference categories. More than 10 operations in 60 seconds models a card-testing/velocity burst while remaining easy to demonstrate. The 120-second lateness allowance is twice the window length, balancing disorder tolerance against bounded in-memory state.
 
+`fraud_score` is a continuous severity/ranking value, not the binary decision threshold. A transaction is marked `is_fraud=1` (`Flagged` in the UI) when **amount > EUR 800 OR merchant_risk >= 0.7**. Independently, a card receives a velocity alert when it has more than 10 transactions in its 60-second window. Keeping these outputs separate makes every alert explainable: the reviewer can see whether amount, merchant risk or rapid repetition caused suspicion.
+
 ### Windowing and state
 - For an event at time $t$, Gold `card_velocity` evaluates the per-card sliding interval $[t-60s,t]$.
 - The state stores `(event_time, amount, fraud_score)` and computes transaction count, cumulative amount and maximum score across the actual window; an alert is raised above 10 transactions.
