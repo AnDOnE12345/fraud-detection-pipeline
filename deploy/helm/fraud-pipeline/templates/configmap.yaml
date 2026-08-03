@@ -14,6 +14,8 @@ data:
   ALLOWED_LATENESS_SECONDS: {{ .Values.processor.allowedLatenessSeconds | quote }}
   FLUSH_EVERY: {{ .Values.processor.flushEvery | quote }}
   FLUSH_INTERVAL_MS: {{ .Values.processor.flushIntervalMs | quote }}
+  STREAM_POLL_MS: {{ .Values.serving.streamPollMs | quote }}
+  SNAPSHOT_CACHE_MS: {{ .Values.serving.snapshotCacheMs | quote }}
   HIGH_AMOUNT: {{ .Values.processor.highAmount | quote }}
   RISK_THRESHOLD: {{ .Values.processor.riskThreshold | quote }}
   VELOCITY_THRESHOLD: {{ .Values.processor.velocityThreshold | quote }}

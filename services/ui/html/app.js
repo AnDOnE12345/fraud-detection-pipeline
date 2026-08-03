@@ -275,6 +275,7 @@ let fallbackTimer = null;
 
 function startFallbackPolling() {
   stopFallbackPolling();
+  refresh();
   fallbackTimer = setInterval(refresh, FALLBACK_REFRESH_MS);
 }
 
@@ -332,5 +333,4 @@ document.getElementById("flagged-reason").addEventListener("change", renderFlagg
 populateMerchants();
 updateManualRulePreview();
 loadRules();
-refresh();
 connectStream();

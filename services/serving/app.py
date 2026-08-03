@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
+import time
 from typing import Any
 
 import pandas as pd
@@ -59,7 +61,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-STREAM_POLL_MS = int(os.getenv("STREAM_POLL_MS", "400"))
+STREAM_POLL_MS = int(os.getenv("STREAM_POLL_MS", "1000"))
+SNAPSHOT_CACHE_MS = int(os.getenv("SNAPSHOT_CACHE_MS", "900"))
+_snapshot_lock = threading.Lock()
+_snapshot_cache: dict[
+    int, tuple[float, tuple[int | None, int | None], dict[str, Any]]
+] = {}
 
 
 def _read(path: str) -> pd.DataFrame:
@@ -132,8 +139,32 @@ def _dashboard_snapshot(limit: int) -> dict[str, Any]:
     return {
         "summary": _summary_from_df(silver_df),
         "flagged": {"items": _recent(flagged_df, limit)},
-        "velocity": {"items": velocity_df.head(limit).to_dict(orient="records") if not velocity_df.empty else []},
+        "velocity": {"items": velocity_df.head(15).to_dict(orient="records") if not velocity_df.empty else []},
     }
+
+
+def _table_version(path: str) -> int | None:
+    try:
+        return DeltaTable(path, storage_options=STORAGE_OPTIONS).version()
+    except (TableNotFoundError, FileNotFoundError, OSError):
+        return None
+
+
+def _cached_dashboard_snapshot(limit: int) -> dict[str, Any]:
+    now = time.monotonic()
+    with _snapshot_lock:
+        cached = _snapshot_cache.get(limit)
+        if cached and (now - cached[0]) * 1000 < SNAPSHOT_CACHE_MS:
+            return cached[2]
+
+        versions = (_table_version(SILVER), _table_version(GOLD_VELOCITY))
+        if cached and cached[1] == versions:
+            _snapshot_cache[limit] = (now, versions, cached[2])
+            return cached[2]
+
+        snapshot = _dashboard_snapshot(limit)
+        _snapshot_cache[limit] = (time.monotonic(), versions, snapshot)
+        return snapshot
 
 
 @app.get("/transactions")
@@ -186,7 +217,7 @@ async def stream(request: Request, limit: int = Query(15, ge=1, le=1000)):
             if await request.is_disconnected():
                 break
 
-            payload = _dashboard_snapshot(limit)
+            payload = await asyncio.to_thread(_cached_dashboard_snapshot, limit)
             payload_json = json.dumps(payload, default=str, sort_keys=True)
 
             if payload_json != last_payload:
