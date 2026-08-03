@@ -96,7 +96,7 @@ flowchart LR
 | `processor` | Python + `kafka-python-ng` + delta-rs | An intentionally alternative streaming engine: transparent state/window code, low runtime overhead and direct Delta writes without a separate JVM cluster. This deviation is allowed by the assignment and its limitations are stated in section 12. |
 | `minio` | S3-compatible object storage | Separates durable storage from compute, is Kubernetes-friendly and represents the cloud-object-storage alternative to HDFS discussed in the lecture. |
 | Silver/Gold tables | Delta Lake | Adds atomic commits, schema evolution and versioned table history to Parquet files on object storage. |
-| `serving` | FastAPI + delta-rs | Reads Delta without Spark and remains stateless; REST supports direct queries and SSE pushes changed dashboard snapshots. |
+| `serving` | FastAPI + delta-rs | Reads Delta without Spark and remains stateless; REST supports direct queries and SSE pushes changed dashboard snapshots. A version-aware TTL cache shares snapshots between clients and avoids rescanning unchanged tables. |
 | `ui` | HTML/JavaScript served by nginx | A separately containerized, low-overhead web component. nginx provides same-origin reverse proxies to producer and serving, including unbuffered SSE. |
 
 ### End-to-end data flow
@@ -290,20 +290,22 @@ git archive --format=zip --output=fraud-detection-pipeline.zip HEAD
     - Kafka consume loop, merchant enrichment, fraud scoring, stateful card-velocity detection, Silver/Gold Delta writes.
 
 - Serving/query layer:
-    - [Summary endpoint](services/serving/app.py#L88)
-  - [Flagged transaction query](services/serving/app.py#L145)
-    - [Latest category aggregates](services/serving/app.py#L165)
-    - [SSE stream endpoint](services/serving/app.py#L180)
+  - [Summary endpoint](services/serving/app.py#L95)
+  - [Version-aware dashboard cache](services/serving/app.py#L153)
+  - [Flagged transaction query](services/serving/app.py#L176)
+  - [Latest category aggregates](services/serving/app.py#L196)
+  - [SSE stream endpoint](services/serving/app.py#L211)
     - Reads Delta tables and exposes summary/flagged/velocity/stats endpoints.
 
 - UI integration:
+  - [Threshold loading](services/ui/html/app.js#L55)
   - [Manual rule preview](services/ui/html/app.js#L69)
   - [Background simulation request](services/ui/html/app.js#L113)
   - [Fraud reason mapping](services/ui/html/app.js#L163)
   - [Flagged table filtering](services/ui/html/app.js#L191)
   - [Dashboard rendering function](services/ui/html/app.js#L253)
-  - [SSE stream connection](services/ui/html/app.js#L288)
-  - [Form and filter event wiring](services/ui/html/app.js#L326)
+  - [SSE stream connection](services/ui/html/app.js#L289)
+  - [Form and filter event wiring](services/ui/html/app.js#L327)
     - Transaction form + live dashboard wired to real APIs.
 
 - Kubernetes manifests and deployment logic:
