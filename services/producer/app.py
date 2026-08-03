@@ -18,9 +18,11 @@ import os
 import random
 import time
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
+from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
@@ -32,6 +34,8 @@ from pydantic import BaseModel, Field
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "transactions")
 SIMULATE_DELAY_MS = int(os.getenv("SIMULATE_DELAY_MS", "60"))
+HIGH_AMOUNT = float(os.getenv("HIGH_AMOUNT", "800"))
+RISK_THRESHOLD = float(os.getenv("RISK_THRESHOLD", "0.7"))
 
 # Reference merchants (kept in sync with data/merchants.csv used for enrichment)
 MERCHANTS = [
@@ -120,6 +124,14 @@ def healthz():
     return {"status": "ok", "topic": KAFKA_TOPIC, "bootstrap": KAFKA_BOOTSTRAP}
 
 
+@app.get("/rules")
+def rules():
+    return {
+        "high_amount": HIGH_AMOUNT,
+        "risk_threshold": RISK_THRESHOLD,
+    }
+
+
 @app.post("/transactions")
 def submit_transaction(tx: Transaction):
     """Ingest a single transaction coming from the UI (data-provider role)."""
@@ -132,20 +144,25 @@ def submit_transaction(tx: Transaction):
         raise HTTPException(status_code=503, detail=f"Kafka unavailable: {exc}")
 
 
-def _synthetic_transaction(fraud: bool) -> dict:
-    """Create one plausible transaction. Fraudulent ones bias toward
-    high amounts and high-risk merchants so the processing rules can flag them."""
+FraudScenario = Literal["normal", "amount", "merchant", "both"]
+
+
+def _synthetic_transaction(scenario: FraudScenario) -> dict:
+    """Create one transaction whose rule outcome matches the scenario."""
     card = f"card_{random.randint(0, 999):05d}"
-    if fraud:
-        merchant_id, country, _ = random.choice(
-            [m for m in MERCHANTS if m[2] >= 0.7]
-        )
-        amount = round(random.uniform(800, 5000), 2)
-    else:
-        merchant_id, country, _ = random.choice(
-            [m for m in MERCHANTS if m[2] < 0.5]
-        )
-        amount = round(random.uniform(1, 250), 2)
+    high_amount = scenario in {"amount", "both"}
+    high_risk_merchant = scenario in {"merchant", "both"}
+    merchant_pool = [
+        merchant
+        for merchant in MERCHANTS
+        if (merchant[2] >= RISK_THRESHOLD) == high_risk_merchant
+    ]
+    merchant_id, country, _ = random.choice(merchant_pool)
+    amount = (
+        round(random.uniform(HIGH_AMOUNT + 100, max(5000, HIGH_AMOUNT + 100)), 2)
+        if high_amount
+        else round(random.uniform(1, min(250, HIGH_AMOUNT - 1)), 2)
+    )
     return _to_event(
         {
             "card_id": card,
@@ -160,9 +177,52 @@ def _synthetic_transaction(fraud: bool) -> dict:
     )
 
 
+def _simulation_scenarios(count: int, fraud_ratio: float) -> list[FraudScenario]:
+    """Return an exact flagged share, balanced across three explainable causes."""
+    flagged_count = int(count * fraud_ratio + 0.5)
+    reasons: tuple[FraudScenario, ...] = ("amount", "merchant", "both")
+    offset = random.randrange(len(reasons))
+    scenarios: list[FraudScenario] = ["normal"] * (count - flagged_count)
+    scenarios.extend(reasons[(index + offset) % len(reasons)] for index in range(flagged_count))
+    random.shuffle(scenarios)
+    return scenarios
+
+
+def _produce_simulation(
+    scenarios: list[FraudScenario], pace_ms: int, burst_card: bool
+) -> None:
+    delay_s = pace_ms / 1000.0
+    try:
+        for scenario in scenarios:
+            _publish(_synthetic_transaction(scenario))
+            if delay_s > 0:
+                time.sleep(delay_s)
+
+        if burst_card:
+            victim = f"card_velocity_{uuid.uuid4().hex[:8]}"
+            for _ in range(15):
+                event = _synthetic_transaction("normal")
+                event["card_id"] = victim
+                event["user_id"] = victim.replace("card", "user")
+                event["event_time"] = _now_iso()
+                _publish(event)
+                if delay_s > 0:
+                    time.sleep(delay_s)
+
+        get_producer().flush(timeout=30)
+        print(f"Simulation completed: {len(scenarios)} base events, burst={burst_card}")
+    except Exception as exc:  # pragma: no cover - infrastructure dependent
+        print(f"Simulation failed: {exc!r}")
+
+
 class SimulateRequest(BaseModel):
     count: int = Field(default=100, ge=1, le=100_000)
-    fraud_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
+    fraud_ratio: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=1.0,
+        description="Share of base events that trigger amount and/or merchant rules.",
+    )
     pace_ms: int = Field(
         default=SIMULATE_DELAY_MS,
         ge=0,
@@ -175,34 +235,34 @@ class SimulateRequest(BaseModel):
     )
 
 
-@app.post("/simulate")
-def simulate(req: SimulateRequest):
-    """Generate a synthetic burst of transactions for load / demo purposes."""
-    produced = 0
-    delay_s = req.pace_ms / 1000.0
-
-    for _ in range(req.count):
-        is_fraud = random.random() < req.fraud_ratio
-        _publish(_synthetic_transaction(is_fraud))
-        produced += 1
-        if delay_s > 0:
-            time.sleep(delay_s)
-
-    # Optional: a velocity attack -> many transactions from ONE card quickly.
-    if req.burst_card:
-        victim = f"card_{random.randint(0, 999):05d}"
-        for _ in range(15):
-            event = _synthetic_transaction(fraud=True)
-            event["card_id"] = victim
-            event["user_id"] = victim.replace("card", "user")
-            event["event_time"] = _now_iso()
-            _publish(event)
-            produced += 1
-            if delay_s > 0:
-                time.sleep(delay_s)
-
-    get_producer().flush(timeout=10)
-    return {"produced": produced, "topic": KAFKA_TOPIC, "pace_ms": req.pace_ms}
+@app.post("/simulate", status_code=202)
+def simulate(req: SimulateRequest, background_tasks: BackgroundTasks):
+    """Schedule a paced synthetic stream and return before generation finishes."""
+    try:
+        get_producer()  # Fail the request immediately if Kafka cannot be reached.
+    except NoBrokersAvailable as exc:  # pragma: no cover - infrastructure dependent
+        raise HTTPException(status_code=503, detail=f"Kafka unavailable: {exc}")
+    scenarios = _simulation_scenarios(req.count, req.fraud_ratio)
+    breakdown = Counter(scenarios)
+    burst_count = 15 if req.burst_card else 0
+    scheduled = req.count + burst_count
+    background_tasks.add_task(
+        _produce_simulation, scenarios, req.pace_ms, req.burst_card
+    )
+    return {
+        "accepted": True,
+        "scheduled": scheduled,
+        "topic": KAFKA_TOPIC,
+        "pace_ms": req.pace_ms,
+        "estimated_seconds": round(scheduled * req.pace_ms / 1000.0, 1),
+        "planned": {
+            "normal": breakdown["normal"],
+            "high_amount": breakdown["amount"],
+            "high_risk_merchant": breakdown["merchant"],
+            "both": breakdown["both"],
+            "velocity_burst": burst_count,
+        },
+    }
 
 
 if __name__ == "__main__":  # local dev entrypoint
