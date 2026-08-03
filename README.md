@@ -115,18 +115,21 @@ flowchart LR
 
 ## 6. Speicherkonzept (Format, Partitionierung, Schema)
 
-### Storage choice
-- Delta Lake tables on MinIO (S3 object storage), not HDFS.
+### Format
+- Delta Lake tables (Parquet data files plus a `_delta_log` transaction log) on MinIO (S3 object storage), not HDFS.
+- Delta is chosen over plain Parquet because it adds ACID commits, consistent snapshots, versioned history and schema evolution on cheap object storage (the Lakehouse idea from the lecture).
 
-### Why this is suitable for Lakehouse
-- ACID transaction log on object storage (`_delta_log`).
-- Time-travel/versioned table history supported by Delta protocol.
-- Schema evolution support (`mergeSchema` + `autoMerge`).
-- Separation of compute and storage.
+### Partitioning
+- The `silver/transactions` fact table is partitioned by `ingest_date` (event date).
+- Rationale: fraud events are time-series data, so date partitioning enables date-range pruning, cheap retention/rollover of old days, and keeps each write's file set small.
+- The Gold tables (`fraud_stats`, `card_velocity`) are intentionally left unpartitioned: they are small aggregate outputs that the serving layer scans in full for the dashboard.
 
-### Data layout
-- Silver: enriched fraud facts (append writes in Delta format).
-- Gold: aggregated serving tables (`fraud_stats`, `card_velocity`).
+### Schema
+- Silver carries an explicit, typed schema: identifiers (`transaction_id`, `card_id`, `user_id`, `merchant_id`), event/ingest time, enrichment (`merchant_category`, `merchant_country`, `merchant_risk`), raw fields (`amount`, `currency`, `lat`, `lon`, `country`) and derived signals (`amount_flag`, `merchant_flag`, `fraud_score`, `is_fraud`).
+- Writes use `schema_mode="merge"` (delta-rs), so new columns can be added without breaking existing readers (schema evolution).
+
+### Why Data Lake / Lakehouse (not a warehouse)
+- Schema-on-read friendly, ACID transaction log, versioned history and separation of compute and storage on low-cost object storage.
 
 ---
 

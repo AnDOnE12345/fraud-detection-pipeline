@@ -6,11 +6,7 @@ __pycache__/
 venv/
 .env
 
-# Spark / Delta local runs
-spark-warehouse/
-metastore_db/
-derby.log
-checkpoints/
+# Local data / runtime artifacts
 _local_data/
 
 # OS / editor

@@ -7,6 +7,4 @@
 .github/
 docs/
 *.md
-checkpoints/
 _local_data/
-spark-warehouse/

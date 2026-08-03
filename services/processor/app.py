@@ -79,7 +79,11 @@ def load_merchants(path: str) -> dict[str, dict[str, Any]]:
     }
 
 
-def write_delta(path: str, rows: list[dict[str, Any]]) -> None:
+def write_delta(
+    path: str,
+    rows: list[dict[str, Any]],
+    partition_by: list[str] | None = None,
+) -> None:
     if not rows:
         return
     df = pd.DataFrame(rows)
@@ -88,6 +92,7 @@ def write_delta(path: str, rows: list[dict[str, Any]]) -> None:
         df,
         mode="append",
         schema_mode="merge",
+        partition_by=partition_by,
         storage_options=STORAGE_OPTIONS,
     )
 
@@ -162,6 +167,7 @@ def main() -> None:
                 "transaction_id": event.get("transaction_id"),
                 "event_time": et.isoformat(),
                 "ingest_time": datetime.now(timezone.utc).isoformat(),
+                "ingest_date": et.date().isoformat(),
                 "card_id": card_id,
                 "user_id": event.get("user_id"),
                 "merchant_id": merchant_id,
@@ -204,7 +210,7 @@ def main() -> None:
         )
 
         if len(silver_rows) >= FLUSH_EVERY:
-            write_delta(SILVER, silver_rows)
+            write_delta(SILVER, silver_rows, partition_by=["ingest_date"])
             write_delta(GOLD_VELOCITY, velocity_rows)
             write_delta(GOLD_STATS, stats_rows)
             silver_rows.clear()
