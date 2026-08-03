@@ -32,7 +32,7 @@ Card payment providers need to detect suspicious behavior in near real time, for
 The producer can generate large bursts (`POST /simulate`) and continuous streams.
 
 ### Velocity
-Events arrive continuously and must be processed with low latency via Structured Streaming micro-batches.
+Events arrive continuously and are processed in near real time by a long-running stream consumer.
 
 ### Variety
 Data combines:
@@ -57,18 +57,16 @@ Kappa architecture was chosen (streaming-first).
 ```mermaid
 flowchart LR
         UI[Web UI\nData Provider + Dashboard] -->|POST /transactions| PROD[Producer API]
-        PROD -->|Kafka topic: transactions| KAFKA[(Kafka / Redpanda)]
-        KAFKA --> SPARK[Spark Structured Streaming]
-        REF[(Merchant Reference Data)] --> SPARK
-        SPARK --> BRONZE[(Delta Bronze)]
-        SPARK --> SILVER[(Delta Silver)]
-        SPARK --> GOLD1[(Delta Gold: fraud_stats)]
-        SPARK --> GOLD2[(Delta Gold: card_velocity)]
+    PROD -->|Kafka topic: transactions| KAFKA[(Kafka / Redpanda)]
+    KAFKA --> PROC[Python Stream Processor]
+    REF[(Merchant Reference Data)] --> PROC
+    PROC --> SILVER[(Delta Silver)]
+    PROC --> GOLD1[(Delta Gold: fraud_stats)]
+    PROC --> GOLD2[(Delta Gold: card_velocity)]
         GOLD1 --> SERVE[Serving API]
         GOLD2 --> SERVE
         SILVER --> SERVE
         SERVE -->|/summary /flagged /stats /velocity| UI
-        BRONZE -. checkpointing .- CKPT[(Checkpoint Log)]
 ```
 
 ---
@@ -78,7 +76,7 @@ flowchart LR
 ### Components
 - `producer` (FastAPI): ingestion edge, receives UI events and publishes to Kafka.
 - `kafka` (Redpanda single-node): event log for streaming ingestion.
-- `processor` (PySpark + Delta): ingestion, enrichment, fraud scoring, window/state processing.
+- `processor` (Python + kafka-python-ng + deltalake): ingestion, enrichment, fraud scoring, per-card state/window processing.
 - `minio` (S3-compatible object storage): data lake/lakehouse storage.
 - `serving` (FastAPI + delta-rs): query layer for dashboard/API consumers.
 - `ui` (nginx static app): user-facing interaction and live monitoring.
@@ -86,9 +84,9 @@ flowchart LR
 ### End-to-end data flow
 1. User submits transaction in UI (or triggers synthetic burst generation).
 2. Producer writes event to Kafka topic `transactions`.
-3. Spark reads topic and writes raw immutable stream to Bronze Delta.
-4. Spark enriches with merchant dataset, computes fraud signals, upserts to Silver.
-5. Spark computes Gold windowed aggregates for dashboard and velocity alerts.
+3. Processor consumes topic records, parses event-time, and enriches with merchant risk metadata.
+4. Processor computes fraud signals and writes Silver records to Delta on MinIO.
+5. Processor computes Gold aggregates for dashboard and velocity alerts.
 6. Serving API reads Silver/Gold and exposes query endpoints.
 7. UI refreshes dashboard every 5 seconds.
 
@@ -97,21 +95,21 @@ flowchart LR
 ## 5. Processing-Logik (Transformationen, Windowing/State, Late Data)
 
 ### Non-trivial transformations
-- Broadcast join: transactions + merchant risk reference table.
+- Merchant enrichment: transactions are enriched with merchant risk reference data.
 - Rule-based feature engineering:
     - `amount_flag` (high-value threshold),
     - `merchant_flag` (high-risk merchant threshold),
     - composite `fraud_score`,
     - final `is_fraud` classification.
-- Idempotent dedup/upsert by `transaction_id` using Delta merge.
 
 ### Windowing and state
-- Gold `card_velocity`: sliding event-time windows with count/sum/max metrics per card.
+- Gold `card_velocity`: sliding event-time window behavior with count/sum/max metrics per card.
 - Velocity alert flag if tx count in window exceeds configured threshold.
+- Stateful logic is kept per-card in memory using deques and event-time pruning.
 
 ### Late data handling
-- Watermark on event-time column (`withWatermark`) controls late arrival tolerance.
-- Closed windows are emitted append-only, limiting state growth.
+- Event-time is parsed from incoming payload (`event_time`) and used for state pruning.
+- Out-of-order or malformed timestamps fall back to current UTC time to keep processing stable.
 
 ---
 
@@ -127,8 +125,7 @@ flowchart LR
 - Separation of compute and storage.
 
 ### Data layout
-- Bronze: raw append-only stream, partitioned by `ingest_date`.
-- Silver: enriched fraud facts, idempotent merge by `transaction_id`.
+- Silver: enriched fraud facts (append writes in Delta format).
 - Gold: aggregated serving tables (`fraud_stats`, `card_velocity`).
 
 ---
@@ -176,7 +173,8 @@ Deployment is declarative via Helm chart:
 - Kubernetes cluster (Minikube/k3d or university environment)
 - Helm v4+
 - Docker images for all services available in registry
-- KEDA operator installed if `keda.enabled=true`
+- Metrics server for HPA targets
+- KEDA operator only if `keda.enabled=true`
 
 ### Build/publish container images (example)
 Adjust image names in `deploy/helm/fraud-pipeline/values.yaml`.
@@ -204,7 +202,7 @@ Then open `http://localhost:8080`.
 
 - Stream processing pipeline:
     - `services/processor/app.py`
-    - Bronze ingest, Silver enrichment/upsert, Gold windowed aggregates, watermarking/checkpoints.
+    - Kafka consume loop, merchant enrichment, fraud scoring, stateful card-velocity detection, Silver/Gold Delta writes.
 
 - Serving/query layer:
     - `services/serving/app.py`
@@ -252,7 +250,7 @@ Example placeholders (replace with real images):
 - Fraud logic is rule-based (no ML model yet).
 - Single-region setup, no cross-cluster disaster recovery.
 - Security hardening is simplified for lab/prototype usage.
-- KEDA requires operator pre-installation in the target cluster.
+- KEDA requires operator pre-installation in the target cluster and is optional for local runs.
 
 ### Next steps
 - Add model-based scoring (feature store + online inference).
@@ -273,7 +271,7 @@ This project targets the bonus criteria with explicit rationale:
 - Justified technology deviation: MinIO/S3 object storage instead of HDFS.
 - Challenging use case: real-time financial fraud detection with stateful velocity logic.
 - Beyond minimum requirements:
-    - exactly-once-oriented design (checkpointing + idempotent Delta upsert),
+    - robust stream processing with event-time state and continuous Delta writes,
     - schema evolution support,
     - autoscaling via HPA + KEDA,
     - CI pipeline (syntax, Helm render, Docker build).
