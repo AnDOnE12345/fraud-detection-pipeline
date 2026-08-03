@@ -2,6 +2,8 @@
 // the producer and serving Kubernetes Services (see nginx.conf) -> no CORS issues.
 const API_PRODUCER = "/api/producer";
 const API_SERVING = "/api/serving";
+const REFRESH_MS_ACTIVE = 700;
+const REFRESH_MS_HIDDEN = 3000;
 
 const MERCHANTS = [
   ["M0001", "QuickCash ATM (high risk)"],
@@ -134,8 +136,34 @@ async function refresh() {
   }
 }
 
+let refreshTimer = null;
+let refreshInFlight = false;
+
+function refreshDelayMs() {
+  return document.hidden ? REFRESH_MS_HIDDEN : REFRESH_MS_ACTIVE;
+}
+
+function scheduleRefresh(delay = refreshDelayMs()) {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(runRefreshLoop, delay);
+}
+
+async function runRefreshLoop() {
+  if (refreshInFlight) {
+    scheduleRefresh(100);
+    return;
+  }
+  refreshInFlight = true;
+  try {
+    await refresh();
+  } finally {
+    refreshInFlight = false;
+    scheduleRefresh();
+  }
+}
+
 document.getElementById("tx-form").addEventListener("submit", submitTransaction);
 document.getElementById("simulate").addEventListener("click", simulate);
+document.addEventListener("visibilitychange", () => scheduleRefresh(50));
 populateMerchants();
-refresh();
-setInterval(refresh, 5000);
+runRefreshLoop();
