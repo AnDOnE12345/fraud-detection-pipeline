@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-syntax:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [producer, processor, serving]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/${{ matrix.service }}/requirements.txt
+
+      - name: Syntax check
+        run: python -m py_compile services/${{ matrix.service }}/app.py
+
+  helm-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Render Helm chart
+        run: |
+          helm template fraud-pipeline deploy/helm/fraud-pipeline > rendered.yaml
+          test -s rendered.yaml
+
+  docker-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        svc:
+          - services/producer
+          - services/processor
+          - services/serving
+          - services/ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build docker image
+        run: docker build -t local/${{ matrix.svc }}:ci ${{ matrix.svc }}
