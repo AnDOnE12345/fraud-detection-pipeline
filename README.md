@@ -212,28 +212,33 @@ Then open `http://localhost:8080`.
 ## 10. Wesentliche Codeabschnitte (mit Verlinkung)
 
 - Ingestion edge and simulation:
-    - [services/producer/app.py](services/producer/app.py)
+    - [Transaction ingest endpoint](services/producer/app.py#L123)
+    - [Synthetic stream endpoint](services/producer/app.py#L178)
     - Accepts UI transactions and writes to Kafka, supports synthetic burst generation.
 
 - Stream processing pipeline:
-    - [services/processor/app.py](services/processor/app.py)
+    - [Main consumer loop](services/processor/app.py#L95)
+    - [Stateful velocity rule](services/processor/app.py#L156)
+    - [Delta write flush](services/processor/app.py#L207)
     - Kafka consume loop, merchant enrichment, fraud scoring, stateful card-velocity detection, Silver/Gold Delta writes.
 
 - Serving/query layer:
-    - [services/serving/app.py](services/serving/app.py)
+    - [Summary endpoint](services/serving/app.py#L88)
+    - [SSE stream endpoint](services/serving/app.py#L170)
     - Reads Delta tables and exposes summary/flagged/velocity/stats endpoints.
 
 - UI integration:
-    - [services/ui/html/index.html](services/ui/html/index.html)
-    - [services/ui/html/app.js](services/ui/html/app.js)
+    - [Form wiring and submit trigger](services/ui/html/app.js#L189)
+    - [Event-driven stream connection](services/ui/html/app.js#L157)
+    - [Dashboard rendering function](services/ui/html/app.js#L118)
     - Transaction form + live dashboard wired to real APIs.
 
 - Kubernetes manifests and deployment logic:
-    - [deploy/helm/fraud-pipeline/templates/apps.yaml](deploy/helm/fraud-pipeline/templates/apps.yaml)
-    - [deploy/helm/fraud-pipeline/templates/kafka.yaml](deploy/helm/fraud-pipeline/templates/kafka.yaml)
-    - [deploy/helm/fraud-pipeline/templates/minio.yaml](deploy/helm/fraud-pipeline/templates/minio.yaml)
-    - [deploy/helm/fraud-pipeline/templates/hpa.yaml](deploy/helm/fraud-pipeline/templates/hpa.yaml)
-    - [deploy/helm/fraud-pipeline/templates/keda.yaml](deploy/helm/fraud-pipeline/templates/keda.yaml)
+    - [All Deployments and Services](deploy/helm/fraud-pipeline/templates/apps.yaml#L1)
+    - [Kafka StatefulSet](deploy/helm/fraud-pipeline/templates/kafka.yaml#L1)
+    - [MinIO StatefulSet + bootstrap job](deploy/helm/fraud-pipeline/templates/minio.yaml#L1)
+    - [HPA manifests](deploy/helm/fraud-pipeline/templates/hpa.yaml#L1)
+    - [Optional KEDA ScaledObject](deploy/helm/fraud-pipeline/templates/keda.yaml#L1)
 
 ---
 
