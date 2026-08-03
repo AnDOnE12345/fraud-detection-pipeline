@@ -1,0 +1,4 @@
+# PySpark + Delta Lake for the streaming processor.
+# Spark itself is provided by the base image; delta-spark matches the Spark version.
+pyspark==3.5.3
+delta-spark==3.2.1
