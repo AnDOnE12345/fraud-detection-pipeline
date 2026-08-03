@@ -3,10 +3,10 @@ global:
   namespace: ""
 
 images:
-  producer: "ghcr.io/andone12345/fraud-producer:latest"
-  processor: "ghcr.io/andone12345/fraud-processor:latest"
-  serving: "ghcr.io/andone12345/fraud-serving:latest"
-  ui: "ghcr.io/andone12345/fraud-ui:latest"
+  producer: "local/fraud-producer:dev"
+  processor: "local/fraud-processor:dev"
+  serving: "local/fraud-serving:dev"
+  ui: "local/fraud-ui:dev"
 
 service:
   producerPort: 8000
@@ -17,8 +17,17 @@ kafka:
   enabled: true
   image: "docker.redpanda.com/redpandadata/redpanda:v24.2.14"
   bootstrap: "kafka:9092"
+  topic: "transactions"
+  topicPartitions: 6
   replicas: 1
   storage: "5Gi"
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "768Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
 
 minio:
   enabled: true
@@ -29,22 +38,60 @@ minio:
   storage: "10Gi"
   rootUser: "minioadmin"
   rootPassword: "minioadmin"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
 
 processor:
   replicas: 1
   windowSeconds: "60"
+  allowedLatenessSeconds: "120"
+  flushEvery: "25"
+  flushIntervalMs: "1000"
   highAmount: "800"
   riskThreshold: "0.7"
   velocityThreshold: "10"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "768Mi"
 
 producer:
   replicas: 1
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "96Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
 
 serving:
   replicas: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1"
+      memory: "512Mi"
 
 ui:
   replicas: 1
+  resources:
+    requests:
+      cpu: "20m"
+      memory: "32Mi"
+    limits:
+      cpu: "100m"
+      memory: "64Mi"
 
 autoscaling:
   producer:
@@ -57,11 +104,16 @@ autoscaling:
     minReplicas: 1
     maxReplicas: 5
     cpuUtilization: 70
+  ui:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    cpuUtilization: 70
 
 keda:
-  enabled: true
+  enabled: false
   processor:
     minReplicaCount: 1
-    maxReplicaCount: 8
+    maxReplicaCount: 6
     lagThreshold: "20"
     consumerGroup: "fraud-processor-group"

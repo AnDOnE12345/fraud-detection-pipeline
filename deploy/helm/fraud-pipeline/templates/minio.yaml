@@ -20,6 +20,8 @@ spec:
         - name: minio
           image: {{ .Values.minio.image | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
@@ -37,6 +39,18 @@ spec:
               name: s3
             - containerPort: 9001
               name: console
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: s3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3
+            initialDelaySeconds: 15
+            periodSeconds: 15
           volumeMounts:
             - name: data
               mountPath: /data
@@ -72,7 +86,13 @@ metadata:
   name: minio-bootstrap
   labels:
     {{- include "fraud-pipeline.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
   template:
     spec:
       restartPolicy: OnFailure
@@ -82,10 +102,13 @@ spec:
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           command: ["/bin/sh", "-c"]
           args:
-            - >-
-              mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD";
-              mc mb -p "local/{{ .Values.minio.bucket }}" || true;
-              mc anonymous set private "local/{{ .Values.minio.bucket }}" || true;
+            - |
+              until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                echo "Waiting for MinIO..."
+                sleep 2
+              done
+              mc mb --ignore-existing "local/{{ .Values.minio.bucket }}"
+              mc anonymous set private "local/{{ .Values.minio.bucket }}"
           env:
             - name: MINIO_ROOT_USER
               valueFrom:

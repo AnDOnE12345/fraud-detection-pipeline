@@ -6,11 +6,14 @@ metadata:
     {{- include "fraud-pipeline.labels" . | nindent 4 }}
 data:
   KAFKA_BOOTSTRAP: {{ .Values.kafka.bootstrap | quote }}
-  KAFKA_TOPIC: "transactions"
+  KAFKA_TOPIC: {{ .Values.kafka.topic | quote }}
   KAFKA_GROUP_ID: {{ .Values.keda.processor.consumerGroup | quote }}
   S3_ENDPOINT: {{ .Values.minio.endpoint | quote }}
   LAKE_BUCKET: {{ .Values.minio.bucket | quote }}
   WINDOW_SECONDS: {{ .Values.processor.windowSeconds | quote }}
+  ALLOWED_LATENESS_SECONDS: {{ .Values.processor.allowedLatenessSeconds | quote }}
+  FLUSH_EVERY: {{ .Values.processor.flushEvery | quote }}
+  FLUSH_INTERVAL_MS: {{ .Values.processor.flushIntervalMs | quote }}
   HIGH_AMOUNT: {{ .Values.processor.highAmount | quote }}
   RISK_THRESHOLD: {{ .Values.processor.riskThreshold | quote }}
   VELOCITY_THRESHOLD: {{ .Values.processor.velocityThreshold | quote }}

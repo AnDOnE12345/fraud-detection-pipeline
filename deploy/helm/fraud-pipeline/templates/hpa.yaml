@@ -43,3 +43,26 @@ spec:
           type: Utilization
           averageUtilization: {{ .Values.autoscaling.serving.cpuUtilization }}
 {{- end }}
+---
+{{- if .Values.autoscaling.ui.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ui-hpa
+  labels:
+    {{- include "fraud-pipeline.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ui
+  minReplicas: {{ .Values.autoscaling.ui.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.ui.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.ui.cpuUtilization }}
+{{- end }}

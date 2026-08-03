@@ -14,10 +14,35 @@ spec:
       labels:
         app: producer
     spec:
+      initContainers:
+        - name: kafka-topic-init
+          image: {{ .Values.kafka.image | quote }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until rpk cluster info -X brokers={{ .Values.kafka.bootstrap }} >/dev/null 2>&1; do
+                echo "Waiting for Kafka..."
+                sleep 2
+              done
+              rpk topic create {{ .Values.kafka.topic | default "transactions" }} \
+                --partitions {{ .Values.kafka.topicPartitions }} \
+                --replicas 1 \
+                -X brokers={{ .Values.kafka.bootstrap }} || true
+              CURRENT_PARTITIONS=$(rpk topic describe {{ .Values.kafka.topic }} --print-summary \
+                -X brokers={{ .Values.kafka.bootstrap }} | awk '$1 == "PARTITIONS" { print $2 }')
+              if [ "$CURRENT_PARTITIONS" -lt {{ .Values.kafka.topicPartitions }} ]; then
+                ADD_PARTITIONS=$(({{ .Values.kafka.topicPartitions }} - CURRENT_PARTITIONS))
+                rpk topic add-partitions {{ .Values.kafka.topic }} \
+                  --num "$ADD_PARTITIONS" \
+                  -X brokers={{ .Values.kafka.bootstrap }}
+              fi
       containers:
         - name: producer
           image: {{ .Values.images.producer | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.producer.resources | nindent 12 }}
           ports:
             - containerPort: 8000
               name: http
@@ -71,6 +96,8 @@ spec:
         - name: serving
           image: {{ .Values.images.serving | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.serving.resources | nindent 12 }}
           ports:
             - containerPort: 8000
               name: http
@@ -126,9 +153,23 @@ spec:
         - name: ui
           image: {{ .Values.images.ui | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.ui.resources | nindent 12 }}
           ports:
             - containerPort: 8080
               name: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
 ---
 apiVersion: v1
 kind: Service
@@ -160,10 +201,35 @@ spec:
       labels:
         app: processor
     spec:
+      initContainers:
+        - name: kafka-topic-init
+          image: {{ .Values.kafka.image | quote }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until rpk cluster info -X brokers={{ .Values.kafka.bootstrap }} >/dev/null 2>&1; do
+                echo "Waiting for Kafka..."
+                sleep 2
+              done
+              rpk topic create {{ .Values.kafka.topic }} \
+                --partitions {{ .Values.kafka.topicPartitions }} \
+                --replicas 1 \
+                -X brokers={{ .Values.kafka.bootstrap }} || true
+              CURRENT_PARTITIONS=$(rpk topic describe {{ .Values.kafka.topic }} --print-summary \
+                -X brokers={{ .Values.kafka.bootstrap }} | awk '$1 == "PARTITIONS" { print $2 }')
+              if [ "$CURRENT_PARTITIONS" -lt {{ .Values.kafka.topicPartitions }} ]; then
+                ADD_PARTITIONS=$(({{ .Values.kafka.topicPartitions }} - CURRENT_PARTITIONS))
+                rpk topic add-partitions {{ .Values.kafka.topic }} \
+                  --num "$ADD_PARTITIONS" \
+                  -X brokers={{ .Values.kafka.bootstrap }}
+              fi
       containers:
         - name: processor
           image: {{ .Values.images.processor | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.processor.resources | nindent 12 }}
           envFrom:
             - configMapRef:
                 name: pipeline-config
@@ -176,6 +242,16 @@ spec:
             - name: merchants-data
               mountPath: /data/merchants.csv
               subPath: merchants.csv
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/tmp/processor-ready"]
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["test", "-f", "/tmp/processor-ready"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
       volumes:
         - name: merchants-data
           configMap:

@@ -20,6 +20,8 @@ spec:
         - name: redpanda
           image: {{ .Values.kafka.image | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.kafka.resources | nindent 12 }}
           command: ["rpk", "redpanda", "start"]
           args:
             - --mode=dev-container
@@ -33,6 +35,20 @@ spec:
           ports:
             - containerPort: 9092
               name: kafka
+          startupProbe:
+            tcpSocket:
+              port: kafka
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: kafka
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: kafka
+            initialDelaySeconds: 20
+            periodSeconds: 15
           volumeMounts:
             - name: data
               mountPath: /var/lib/redpanda/data

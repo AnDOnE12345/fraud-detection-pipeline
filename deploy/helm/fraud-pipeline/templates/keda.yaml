@@ -16,7 +16,7 @@ spec:
     - type: kafka
       metadata:
         bootstrapServers: {{ .Values.kafka.bootstrap | quote }}
-        topic: "transactions"
+        topic: {{ .Values.kafka.topic | quote }}
         consumerGroup: {{ .Values.keda.processor.consumerGroup | quote }}
         lagThreshold: {{ .Values.keda.processor.lagThreshold | quote }}
 {{- end }}
