@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeline-config
+  labels:
+    {{- include "fraud-pipeline.labels" . | nindent 4 }}
+data:
+  KAFKA_BOOTSTRAP: {{ .Values.kafka.bootstrap | quote }}
+  KAFKA_TOPIC: "transactions"
+  S3_ENDPOINT: {{ .Values.minio.endpoint | quote }}
+  LAKE_BUCKET: {{ .Values.minio.bucket | quote }}
+  WATERMARK_DELAY: {{ .Values.processor.watermarkDelay | quote }}
+  WINDOW_DURATION: {{ .Values.processor.windowDuration | quote }}
+  SLIDE_DURATION: {{ .Values.processor.slideDuration | quote }}
+  HIGH_AMOUNT: {{ .Values.processor.highAmount | quote }}
+  RISK_THRESHOLD: {{ .Values.processor.riskThreshold | quote }}
+  VELOCITY_THRESHOLD: {{ .Values.processor.velocityThreshold | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: merchants-data
+  labels:
+    {{- include "fraud-pipeline.labels" . | nindent 4 }}
+data:
+  merchants.csv: |
+{{ .Files.Get "files/merchants.csv" | indent 4 }}

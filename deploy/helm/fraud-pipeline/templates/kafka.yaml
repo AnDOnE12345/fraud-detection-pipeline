@@ -1,0 +1,63 @@
+{{- if .Values.kafka.enabled }}
+apiVersion: apps/StatefulSet
+kind: StatefulSet
+metadata:
+  name: kafka
+  labels:
+    {{- include "fraud-pipeline.labels" . | nindent 4 }}
+spec:
+  serviceName: kafka
+  replicas: {{ .Values.kafka.replicas }}
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+        - name: redpanda
+          image: {{ .Values.kafka.image | quote }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - >-
+              redpanda start
+              --overprovisioned
+              --smp 1
+              --memory 512M
+              --reserve-memory 0M
+              --node-id 0
+              --check=false
+              --kafka-addr PLAINTEXT://0.0.0.0:9092
+              --advertise-kafka-addr PLAINTEXT://kafka:9092
+          ports:
+            - containerPort: 9092
+              name: kafka
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.kafka.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  labels:
+    {{- include "fraud-pipeline.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: kafka
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
+{{- end }}

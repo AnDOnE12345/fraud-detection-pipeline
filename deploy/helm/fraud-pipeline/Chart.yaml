@@ -1,0 +1,6 @@
+apiVersion: v2
+name: fraud-pipeline
+description: Real-time fraud detection Kappa pipeline on Kubernetes
+version: 0.1.0
+appVersion: "1.0.0"
+type: application

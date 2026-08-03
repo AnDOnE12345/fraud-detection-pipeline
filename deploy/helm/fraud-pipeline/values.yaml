@@ -1,0 +1,61 @@
+global:
+  imagePullPolicy: IfNotPresent
+  namespace: ""
+
+images:
+  producer: "ghcr.io/andone12345/fraud-producer:latest"
+  processor: "ghcr.io/andone12345/fraud-processor:latest"
+  serving: "ghcr.io/andone12345/fraud-serving:latest"
+  ui: "ghcr.io/andone12345/fraud-ui:latest"
+
+service:
+  producerPort: 8000
+  servingPort: 8000
+  uiPort: 8080
+
+kafka:
+  enabled: true
+  image: "docker.redpanda.com/redpandadata/redpanda:v24.2.14"
+  bootstrap: "kafka:9092"
+  replicas: 1
+  storage: "5Gi"
+
+minio:
+  enabled: true
+  image: "minio/minio:RELEASE.2025-02-07T23-21-09Z"
+  mcImage: "minio/mc:RELEASE.2025-02-08T19-14-21Z"
+  endpoint: "http://minio:9000"
+  bucket: "fraud"
+  storage: "10Gi"
+  rootUser: "minioadmin"
+  rootPassword: "minioadmin"
+
+processor:
+  replicas: 1
+  watermarkDelay: "2 minutes"
+  windowDuration: "1 minute"
+  slideDuration: "30 seconds"
+  highAmount: "800"
+  riskThreshold: "0.7"
+  velocityThreshold: "10"
+
+producer:
+  replicas: 1
+
+serving:
+  replicas: 1
+
+ui:
+  replicas: 1
+
+autoscaling:
+  producer:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    cpuUtilization: 70
+  serving:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    cpuUtilization: 70
