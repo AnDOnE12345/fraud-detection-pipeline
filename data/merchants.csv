@@ -1,0 +1,16 @@
+merchant_id,merchant_name,category,country,risk_score
+M0001,QuickCash ATM,cash_withdrawal,RU,0.85
+M0002,Global Electronics,electronics,DE,0.35
+M0003,City Supermarket,groceries,DE,0.05
+M0004,LuxWatches Online,luxury,CH,0.70
+M0005,FuelStop 24,fuel,DE,0.15
+M0006,CryptoExchange X,crypto,MT,0.90
+M0007,Airline Bookings,travel,FR,0.40
+M0008,Streaming Plus,digital_goods,US,0.25
+M0009,Betsy Casino,gambling,MT,0.88
+M0010,Corner Bakery,groceries,DE,0.03
+M0011,Overseas Wire Ltd,money_transfer,NG,0.92
+M0012,GadgetMarket,electronics,CN,0.55
+M0013,Pharmacy Central,healthcare,DE,0.08
+M0014,Designer Outlet,luxury,IT,0.60
+M0015,RideShare Go,transport,DE,0.20
