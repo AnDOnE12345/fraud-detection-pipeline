@@ -7,7 +7,7 @@ WORKDIR /app
 
 # Java runtime is required by Spark.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openjdk-17-jre-headless \
+    && apt-get install -y --no-install-recommends default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
