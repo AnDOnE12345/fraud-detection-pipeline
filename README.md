@@ -175,7 +175,7 @@ The prototype thresholds are deliberately explainable and matched to the synthet
 
 ### Role
 - Data supplier: form submits real transactions into ingestion pipeline.
-- Result consumer: dashboard displays summary, flagged transactions, velocity alerts.
+- Result consumer: dashboard displays summary, flagged transactions with exact rule reasons, and velocity alerts.
 
 ### Real pipeline coupling
 - UI sends data to producer API (`/api/producer/*` proxied by nginx).
@@ -186,6 +186,7 @@ The prototype thresholds are deliberately explainable and matched to the synthet
 1. Open UI service.
 2. Submit one manual payment, or choose count/fraud ratio and generate a paced synthetic stream including one same-card burst.
 3. The producer confirms acceptance; after processing, summary values and the flagged/velocity tables update without a page reload.
+4. Investigate the latest flagged records by searching card/merchant and filtering the reason (`High amount`, `High-risk merchant`, or both). The table states how many rows are shown out of the total flagged count.
 
 ---
 
@@ -204,6 +205,7 @@ Deployment is declarative via the Helm chart [deploy/helm/fraud-pipeline](deploy
 
 - `pipeline-config` contains endpoints and processing thresholds; `merchants-data` mounts the reference CSV. Credentials are separated into `pipeline-secrets` and injected at runtime rather than baked into images.
 - Every long-running workload has CPU/memory requests and limits plus readiness/liveness checks. HPA scales producer/serving from 1 to 5 replicas and UI from 1 to 3.
+- For HPA/KEDA-managed Deployments, Helm omits a static `spec.replicas`; this leaves replica ownership with the autoscaler and prevents upgrades from resetting a live scale decision.
 - Redpanda and MinIO use PVCs from `volumeClaimTemplates`. Producer and processor initContainers idempotently create or expand `transactions` to six partitions before the applications start.
 - Scale path by component: stateless Deployments use HPA; processor parallelism is capped by Kafka partitions and can use KEDA; production Redpanda would use a multi-broker StatefulSet/operator and production MinIO distributed mode. Those two stateful production topologies are intentionally not simulated on one laptop.
 
@@ -285,14 +287,17 @@ git archive --format=zip --output=fraud-detection-pipeline.zip HEAD
 
 - Serving/query layer:
     - [Summary endpoint](services/serving/app.py#L88)
-  - [Latest category aggregates](services/serving/app.py#L163)
-  - [SSE stream endpoint](services/serving/app.py#L178)
+  - [Flagged transaction query](services/serving/app.py#L145)
+    - [Latest category aggregates](services/serving/app.py#L165)
+    - [SSE stream endpoint](services/serving/app.py#L180)
     - Reads Delta tables and exposes summary/flagged/velocity/stats endpoints.
 
 - UI integration:
-  - [Form wiring and submit trigger](services/ui/html/app.js#L199)
-  - [SSE stream connection](services/ui/html/app.js#L161)
-  - [Dashboard rendering function](services/ui/html/app.js#L122)
+  - [Fraud reason mapping](services/ui/html/app.js#L110)
+  - [Flagged table filtering](services/ui/html/app.js#L138)
+  - [Dashboard rendering function](services/ui/html/app.js#L200)
+  - [SSE stream connection](services/ui/html/app.js#L235)
+  - [Form and filter event wiring](services/ui/html/app.js#L273)
     - Transaction form + live dashboard wired to real APIs.
 
 - Kubernetes manifests and deployment logic:

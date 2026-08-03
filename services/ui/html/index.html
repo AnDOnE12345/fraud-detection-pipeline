@@ -51,21 +51,45 @@
           <div class="card"><span class="num" id="m-rate">0%</span><span>Fraud rate</span></div>
         </div>
 
-        <h3>Flagged transactions</h3>
-        <table id="flagged-table">
-          <thead>
-            <tr><th>Time</th><th>Card</th><th>Merchant</th><th>Amount</th><th>Score</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="section-heading">
+          <div>
+            <h3>Latest flagged transactions</h3>
+            <p id="flagged-count" class="section-meta">No flagged transactions yet</p>
+          </div>
+          <div class="table-filters" aria-label="Flagged transaction filters">
+            <label class="filter-field">
+              <span>Search</span>
+              <input id="flagged-search" type="search" placeholder="Card or merchant" autocomplete="off" />
+            </label>
+            <label class="filter-field">
+              <span>Reason</span>
+              <select id="flagged-reason">
+                <option value="">All reasons</option>
+                <option value="amount">High amount</option>
+                <option value="merchant">High-risk merchant</option>
+                <option value="both">Both rules</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="flagged-table">
+            <thead>
+              <tr><th>Time</th><th>Card</th><th>Merchant</th><th>Amount</th><th>Score</th><th>Reason</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
 
         <h3>Velocity alerts (stateful window)</h3>
-        <table id="velocity-table">
-          <thead>
-            <tr><th>Window end</th><th>Card</th><th>#Tx</th><th>Sum</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrap">
+          <table id="velocity-table">
+            <thead>
+              <tr><th>Window end</th><th>Card</th><th>#Tx</th><th>Sum</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
     </main>
 

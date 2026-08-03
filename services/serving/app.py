@@ -101,6 +101,8 @@ def _recent(df: pd.DataFrame, limit: int) -> list[dict]:
             "merchant_id",
             "merchant_category",
             "amount",
+            "amount_flag",
+            "merchant_flag",
             "fraud_score",
             "is_fraud",
             "is_late",
