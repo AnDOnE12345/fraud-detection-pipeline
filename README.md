@@ -233,13 +233,28 @@ Required evidence:
 - Pipeline output examples (processor/log or table snapshots)
 - Scaling evidence (`kubectl get hpa` and optionally KEDA state)
 
-Example placeholders (replace with real images):
+1. Cluster health: all core components are deployed and Running.
 
 ![Pods](docs/screenshots/pods.png)
+
+2. Data-provider UI action: synthetic events are generated and accepted by the producer.
+
 ![UI Producer](docs/screenshots/ui-producer.png)
+
+3. Live dashboard result view: processed/flagged metrics plus fraud and velocity tables.
+
 ![UI Dashboard](docs/screenshots/ui-dashboard.png)
+
+4. Serving API response: query endpoint returns live aggregated results.
+
 ![Serving API](docs/screenshots/serving-api.png)
+
+5. Processing evidence: processor writes streaming batches to Delta tables.
+
 ![Pipeline Output](docs/screenshots/pipeline-output.png)
+
+6. Horizontal scaling evidence: HPA resources are present and active.
+
 ![Scaling](docs/screenshots/scaling.png)
 
 ---
