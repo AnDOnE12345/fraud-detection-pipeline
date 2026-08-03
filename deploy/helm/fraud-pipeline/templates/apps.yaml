@@ -5,7 +5,9 @@ metadata:
   labels:
     {{- include "fraud-pipeline.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.producer.enabled }}
   replicas: {{ .Values.producer.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       app: producer
@@ -83,7 +85,9 @@ metadata:
   labels:
     {{- include "fraud-pipeline.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.serving.enabled }}
   replicas: {{ .Values.serving.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       app: serving
@@ -140,7 +144,9 @@ metadata:
   labels:
     {{- include "fraud-pipeline.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.ui.enabled }}
   replicas: {{ .Values.ui.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       app: ui
@@ -192,7 +198,9 @@ metadata:
   labels:
     {{- include "fraud-pipeline.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.keda.enabled }}
   replicas: {{ .Values.processor.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       app: processor
