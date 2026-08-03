@@ -2,8 +2,7 @@
 // the producer and serving Kubernetes Services (see nginx.conf) -> no CORS issues.
 const API_PRODUCER = "/api/producer";
 const API_SERVING = "/api/serving";
-const REFRESH_MS_ACTIVE = 700;
-const REFRESH_MS_HIDDEN = 3000;
+const FALLBACK_REFRESH_MS = 3000;
 
 const MERCHANTS = [
   ["M0001", "QuickCash ATM (high risk)"],
@@ -110,60 +109,85 @@ async function refresh() {
       fetch(`${API_SERVING}/velocity?limit=15`).then((r) => r.json()),
     ]);
 
-    document.getElementById("m-processed").textContent = summary.processed ?? 0;
-    document.getElementById("m-flagged").textContent = summary.flagged ?? 0;
-    document.getElementById("m-rate").textContent =
-      Math.round((summary.fraud_rate ?? 0) * 100) + "%";
-
-    fillTable(
-      "flagged-table",
-      flagged.items || [],
-      (r) =>
-        `<td>${fmtTime(r.event_time)}</td><td>${r.card_id ?? ""}</td>` +
-        `<td>${r.merchant_id ?? ""}</td><td>${(r.amount ?? 0).toFixed?.(2) ?? r.amount}</td>` +
-        `<td>${r.fraud_score ?? ""}</td>`
-    );
-
-    fillTable(
-      "velocity-table",
-      velocity.items || [],
-      (r) =>
-        `<td>${fmtTime(r.window_end)}</td><td>${r.card_id ?? ""}</td>` +
-        `<td>${r.tx_count ?? ""}</td><td>${r.amount_sum ?? ""}</td>`
-    );
+    renderDashboard(summary, flagged, velocity);
   } catch (e) {
     // Serving may not be reachable yet; ignore during startup.
   }
 }
 
-let refreshTimer = null;
-let refreshInFlight = false;
+function renderDashboard(summary, flagged, velocity) {
+  document.getElementById("m-processed").textContent = summary?.processed ?? 0;
+  document.getElementById("m-flagged").textContent = summary?.flagged ?? 0;
+  document.getElementById("m-rate").textContent =
+    Math.round((summary?.fraud_rate ?? 0) * 100) + "%";
 
-function refreshDelayMs() {
-  return document.hidden ? REFRESH_MS_HIDDEN : REFRESH_MS_ACTIVE;
+  fillTable(
+    "flagged-table",
+    flagged?.items || [],
+    (r) =>
+      `<td>${fmtTime(r.event_time)}</td><td>${r.card_id ?? ""}</td>` +
+      `<td>${r.merchant_id ?? ""}</td><td>${(r.amount ?? 0).toFixed?.(2) ?? r.amount}</td>` +
+      `<td>${r.fraud_score ?? ""}</td>`
+  );
+
+  fillTable(
+    "velocity-table",
+    velocity?.items || [],
+    (r) =>
+      `<td>${fmtTime(r.window_end)}</td><td>${r.card_id ?? ""}</td>` +
+      `<td>${r.tx_count ?? ""}</td><td>${r.amount_sum ?? ""}</td>`
+  );
 }
 
-function scheduleRefresh(delay = refreshDelayMs()) {
-  clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(runRefreshLoop, delay);
+let sse = null;
+let fallbackTimer = null;
+
+function startFallbackPolling() {
+  stopFallbackPolling();
+  fallbackTimer = setInterval(refresh, FALLBACK_REFRESH_MS);
 }
 
-async function runRefreshLoop() {
-  if (refreshInFlight) {
-    scheduleRefresh(100);
+function stopFallbackPolling() {
+  if (fallbackTimer) {
+    clearInterval(fallbackTimer);
+    fallbackTimer = null;
+  }
+}
+
+function connectStream() {
+  if (!window.EventSource) {
+    startFallbackPolling();
     return;
   }
-  refreshInFlight = true;
-  try {
-    await refresh();
-  } finally {
-    refreshInFlight = false;
-    scheduleRefresh();
+
+  if (sse) {
+    sse.close();
   }
+
+  sse = new EventSource(`${API_SERVING}/stream?limit=15`);
+
+  sse.addEventListener("dashboard", (evt) => {
+    try {
+      const data = JSON.parse(evt.data);
+      renderDashboard(data.summary, data.flagged, data.velocity);
+      stopFallbackPolling();
+    } catch (e) {
+      // ignore malformed event
+    }
+  });
+
+  sse.onopen = () => {
+    stopFallbackPolling();
+  };
+
+  sse.onerror = () => {
+    startFallbackPolling();
+    setTimeout(connectStream, 2000);
+  };
 }
 
 document.getElementById("tx-form").addEventListener("submit", submitTransaction);
 document.getElementById("simulate").addEventListener("click", simulate);
-document.addEventListener("visibilitychange", () => scheduleRefresh(50));
 populateMerchants();
-runRefreshLoop();
+refresh();
+connectStream();

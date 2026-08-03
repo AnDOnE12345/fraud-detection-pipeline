@@ -17,13 +17,17 @@ Endpoints consumed by the User-facing UI dashboard:
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
+from typing import Any
 
 import pandas as pd
 from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 # --------------------------------------------------------------------------- #
 # Configuration (ConfigMap / Secret)
@@ -55,6 +59,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+STREAM_POLL_MS = int(os.getenv("STREAM_POLL_MS", "400"))
+
 
 def _read(path: str) -> pd.DataFrame:
     """Read a Delta table into pandas; return empty frame if it doesn't exist yet."""
@@ -64,6 +70,15 @@ def _read(path: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _summary_from_df(df: pd.DataFrame) -> dict[str, Any]:
+    if df.empty:
+        return {"processed": 0, "flagged": 0, "fraud_rate": 0.0}
+    processed = int(len(df))
+    flagged = int(df["is_fraud"].sum()) if "is_fraud" in df else 0
+    rate = round(flagged / processed, 4) if processed else 0.0
+    return {"processed": processed, "flagged": flagged, "fraud_rate": rate}
+
+
 @app.get("/healthz")
 def healthz():
     return {"status": "ok", "bucket": LAKE_BUCKET, "endpoint": S3_ENDPOINT}
@@ -71,13 +86,7 @@ def healthz():
 
 @app.get("/summary")
 def summary():
-    df = _read(SILVER)
-    if df.empty:
-        return {"processed": 0, "flagged": 0, "fraud_rate": 0.0}
-    processed = int(len(df))
-    flagged = int(df["is_fraud"].sum()) if "is_fraud" in df else 0
-    rate = round(flagged / processed, 4) if processed else 0.0
-    return {"processed": processed, "flagged": flagged, "fraud_rate": rate}
+    return _summary_from_df(_read(SILVER))
 
 
 def _recent(df: pd.DataFrame, limit: int) -> list[dict]:
@@ -101,6 +110,25 @@ def _recent(df: pd.DataFrame, limit: int) -> list[dict]:
     if "event_time" in df.columns:
         df = df.sort_values("event_time", ascending=False)
     return df.head(limit).to_dict(orient="records")
+
+
+def _dashboard_snapshot(limit: int) -> dict[str, Any]:
+    silver_df = _read(SILVER)
+    flagged_df = silver_df
+    if not flagged_df.empty and "is_fraud" in flagged_df.columns:
+        flagged_df = flagged_df[flagged_df["is_fraud"] == 1]
+
+    velocity_df = _read(GOLD_VELOCITY)
+    if not velocity_df.empty and "velocity_alert" in velocity_df.columns:
+        velocity_df = velocity_df[velocity_df["velocity_alert"] == 1]
+    if not velocity_df.empty and "window_end" in velocity_df.columns:
+        velocity_df = velocity_df.sort_values("window_end", ascending=False)
+
+    return {
+        "summary": _summary_from_df(silver_df),
+        "flagged": {"items": _recent(flagged_df, limit)},
+        "velocity": {"items": velocity_df.head(limit).to_dict(orient="records") if not velocity_df.empty else []},
+    }
 
 
 @app.get("/transactions")
@@ -136,6 +164,33 @@ def stats(limit: int = Query(100, ge=1, le=1000)):
     if "window_end" in df.columns:
         df = df.sort_values("window_end", ascending=False)
     return {"items": df.head(limit).to_dict(orient="records")}
+
+
+@app.get("/stream")
+async def stream(request: Request, limit: int = Query(15, ge=1, le=1000)):
+    async def event_generator():
+        last_payload = ""
+        sleep_s = max(STREAM_POLL_MS, 100) / 1000.0
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            payload = _dashboard_snapshot(limit)
+            payload_json = json.dumps(payload, default=str, sort_keys=True)
+
+            if payload_json != last_payload:
+                last_payload = payload_json
+                yield f"event: dashboard\ndata: {payload_json}\n\n"
+
+            await asyncio.sleep(sleep_s)
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers=headers)
 
 
 if __name__ == "__main__":  # local dev entrypoint
