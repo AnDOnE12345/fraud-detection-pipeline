@@ -8,29 +8,80 @@ const TABLE_ROW_LIMIT = 15;
 
 let latestSummary = { processed: 0, flagged: 0, fraud_rate: 0 };
 let latestFlaggedItems = [];
+let activeRules = { highAmount: 800, riskThreshold: 0.7 };
 
 const MERCHANTS = [
-  ["M0001", "QuickCash ATM (high risk)"],
-  ["M0002", "Global Electronics"],
-  ["M0003", "City Supermarket"],
-  ["M0004", "LuxWatches Online"],
-  ["M0006", "CryptoExchange X (high risk)"],
-  ["M0009", "Betsy Casino (high risk)"],
-  ["M0010", "Corner Bakery"],
-  ["M0011", "Overseas Wire Ltd (high risk)"],
-  ["M0013", "Pharmacy Central"],
-  ["M0015", "RideShare Go"],
+  ["M0001", "QuickCash ATM (high risk)", 0.85],
+  ["M0002", "Global Electronics", 0.35],
+  ["M0003", "City Supermarket", 0.05],
+  ["M0004", "LuxWatches Online (high risk)", 0.70],
+  ["M0006", "CryptoExchange X (high risk)", 0.90],
+  ["M0009", "Betsy Casino (high risk)", 0.88],
+  ["M0010", "Corner Bakery", 0.03],
+  ["M0011", "Overseas Wire Ltd (high risk)", 0.92],
+  ["M0013", "Pharmacy Central", 0.08],
+  ["M0015", "RideShare Go", 0.20],
 ];
 
 function populateMerchants() {
   const sel = document.getElementById("merchant");
-  for (const [id, name] of MERCHANTS) {
+  for (const [id, name, risk] of MERCHANTS) {
     const opt = document.createElement("option");
     opt.value = id;
+    opt.dataset.risk = String(risk);
     opt.textContent = `${id} — ${name}`;
     sel.appendChild(opt);
   }
-  sel.value = "M0006";
+  sel.value = "M0002";
+}
+
+async function readApiResponse(response) {
+  const body = await response.text();
+  let data = null;
+  try {
+    data = body ? JSON.parse(body) : {};
+  } catch {
+    const message = response.ok
+      ? "Server returned an invalid response"
+      : `HTTP ${response.status} ${response.statusText}`;
+    throw new Error(message);
+  }
+  if (!response.ok) {
+    throw new Error(data.detail || `HTTP ${response.status} ${response.statusText}`);
+  }
+  return data;
+}
+
+async function loadRules() {
+  try {
+    const response = await fetch(`${API_PRODUCER}/rules`);
+    const data = await readApiResponse(response);
+    activeRules = {
+      highAmount: Number(data.high_amount),
+      riskThreshold: Number(data.risk_threshold),
+    };
+  } catch {
+    // Defaults match the chart and keep the preview usable during startup.
+  }
+  updateManualRulePreview();
+}
+
+function updateManualRulePreview() {
+  const form = document.getElementById("tx-form");
+  const amountFlag = Number(form.amount.value) > activeRules.highAmount;
+  const selected = form.merchant_id.selectedOptions[0];
+  const merchantFlag =
+    Number(selected?.dataset.risk ?? 0) >= activeRules.riskThreshold;
+  const preview = document.getElementById("manual-rule-preview");
+  const reason = fraudReason({
+    amount_flag: Number(amountFlag),
+    merchant_flag: Number(merchantFlag),
+  });
+  const flagged = amountFlag || merchantFlag;
+  preview.textContent = flagged ? `Expected: ${reason.label}` : "Expected: Not flagged";
+  preview.className = `manual-preview reason-badge ${
+    flagged ? reason.className : "reason-normal"
+  }`;
 }
 
 async function submitTransaction(evt) {
@@ -50,22 +101,20 @@ async function submitTransaction(evt) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    out.textContent = res.ok
-      ? `Accepted: ${data.transaction_id}`
-      : `Error: ${data.detail || res.status}`;
-    out.className = res.ok ? "result ok" : "result err";
+    const data = await readApiResponse(res);
+    out.textContent = `Accepted: ${data.transaction_id}`;
+    out.className = "result ok";
   } catch (e) {
-    out.textContent = `Network error: ${e}`;
+    out.textContent = `Error: ${e.message}`;
     out.className = "result err";
   }
 }
 
 async function simulate() {
   const count = parseInt(document.getElementById("sim-count").value, 10);
-  const fraud_ratio = parseFloat(document.getElementById("sim-ratio").value);
+  const fraud_ratio = parseFloat(document.getElementById("sim-ratio").value) / 100;
   const out = document.getElementById("sim-result");
-  out.textContent = "Producing…";
+  out.textContent = "Scheduling stream…";
   out.className = "result";
   try {
     const res = await fetch(`${API_PRODUCER}/simulate`, {
@@ -73,11 +122,15 @@ async function simulate() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ count, fraud_ratio, burst_card: true }),
     });
-    const data = await res.json();
-    out.textContent = res.ok ? `Produced ${data.produced} events` : `Error ${res.status}`;
-    out.className = res.ok ? "result ok" : "result err";
+    const data = await readApiResponse(res);
+    const plan = data.planned;
+    out.textContent =
+      `Scheduled ${data.scheduled.toLocaleString()} events (~${data.estimated_seconds}s): ` +
+      `${plan.high_amount} amount, ${plan.high_risk_merchant} merchant, ` +
+      `${plan.both} both, +${plan.velocity_burst} velocity-only`;
+    out.className = "result ok";
   } catch (e) {
-    out.textContent = `Network error: ${e}`;
+    out.textContent = `Error: ${e.message}`;
     out.className = "result err";
   }
 }
@@ -271,9 +324,13 @@ function connectStream() {
 }
 
 document.getElementById("tx-form").addEventListener("submit", submitTransaction);
+document.querySelector('#tx-form input[name="amount"]').addEventListener("input", updateManualRulePreview);
+document.getElementById("merchant").addEventListener("change", updateManualRulePreview);
 document.getElementById("simulate").addEventListener("click", simulate);
 document.getElementById("flagged-search").addEventListener("input", renderFlaggedTable);
 document.getElementById("flagged-reason").addEventListener("change", renderFlaggedTable);
 populateMerchants();
+updateManualRulePreview();
+loadRules();
 refresh();
 connectStream();

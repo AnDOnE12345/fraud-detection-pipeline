@@ -91,6 +91,8 @@ button:hover { filter: brightness(1.1); }
 .result { font-size: 0.8rem; min-height: 1rem; margin: 0.3rem 0 0; }
 .result.ok { color: var(--ok); }
 .result.err { color: var(--danger); }
+.manual-preview { align-self: flex-start; margin: 0.1rem 0 0; }
+.simulation-hint { margin-top: 0.55rem; line-height: 1.45; }
 
 .cards { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
 .card {
@@ -133,6 +135,7 @@ tbody tr:hover { background: rgba(56, 189, 248, 0.05); }
 .reason-merchant { color: #fb7185; border-color: #9f1239; background: rgba(159, 18, 57, 0.16); }
 .reason-both { color: #fda4af; border-color: #e11d48; background: rgba(225, 29, 72, 0.18); }
 .reason-rule { color: var(--muted); }
+.reason-normal { color: var(--ok); border-color: #166534; background: rgba(22, 101, 52, 0.16); }
 
 @media (max-width: 1100px) {
   .section-heading { align-items: stretch; flex-direction: column; }
