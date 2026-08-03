@@ -1,5 +1,5 @@
 {{- if .Values.minio.enabled }}
-apiVersion: apps/StatefulSet
+apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: minio

@@ -1,5 +1,5 @@
 {{- if .Values.kafka.enabled }}
-apiVersion: apps/StatefulSet
+apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: kafka
@@ -20,18 +20,16 @@ spec:
         - name: redpanda
           image: {{ .Values.kafka.image | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-          command: ["/bin/bash", "-c"]
+          command: ["rpk", "redpanda", "start"]
           args:
-            - >-
-              redpanda start
-              --overprovisioned
-              --smp 1
-              --memory 512M
-              --reserve-memory 0M
-              --node-id 0
-              --check=false
-              --kafka-addr PLAINTEXT://0.0.0.0:9092
-              --advertise-kafka-addr PLAINTEXT://kafka:9092
+            - --mode=dev-container
+            - --smp=1
+            - --memory=512M
+            - --reserve-memory=0M
+            - --check=false
+            - --node-id=0
+            - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+            - --advertise-kafka-addr=PLAINTEXT://kafka:9092
           ports:
             - containerPort: 9092
               name: kafka
