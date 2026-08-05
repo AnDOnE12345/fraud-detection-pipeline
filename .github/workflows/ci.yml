@@ -30,7 +30,12 @@ jobs:
         run: python -m py_compile services/${{ matrix.service }}/app.py
 
       - name: Service rule tests
-        run: python -m unittest discover -s services/${{ matrix.service }} -p 'test_*.py'
+        run: |
+          if ls services/${{ matrix.service }}/test_*.py 2>/dev/null; then
+            python -m unittest discover -s services/${{ matrix.service }} -p 'test_*.py'
+          else
+            echo "No tests for ${{ matrix.service }}, skipping."
+          fi
 
   helm-render:
     runs-on: ubuntu-latest
