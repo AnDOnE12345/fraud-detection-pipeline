@@ -1,0 +1,24 @@
+# Install into a NEW namespace/PVC set; do not convert standalone MinIO in place.
+kafka:
+  replicas: 3
+  replicationFactor: 3
+minio:
+  distributed: true
+  serversPerPool: 4
+  poolCount: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: '1'
+      memory: 1Gi
+processor:
+  replicas: 2
+autoscaling:
+  producer:
+    minReplicas: 2
+  serving:
+    minReplicas: 2
+  ui:
+    minReplicas: 2

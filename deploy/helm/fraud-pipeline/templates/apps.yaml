@@ -20,25 +20,10 @@ spec:
         - name: kafka-topic-init
           image: {{ .Values.kafka.image | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-          command: ["/bin/sh", "-c"]
+          command: ["/bin/sh", "-ec"]
           args:
             - |
-              until rpk cluster info -X brokers={{ .Values.kafka.bootstrap }} >/dev/null 2>&1; do
-                echo "Waiting for Kafka..."
-                sleep 2
-              done
-              rpk topic create {{ .Values.kafka.topic | default "transactions" }} \
-                --partitions {{ .Values.kafka.topicPartitions }} \
-                --replicas 1 \
-                -X brokers={{ .Values.kafka.bootstrap }} || true
-              CURRENT_PARTITIONS=$(rpk topic describe {{ .Values.kafka.topic }} --print-summary \
-                -X brokers={{ .Values.kafka.bootstrap }} | awk '$1 == "PARTITIONS" { print $2 }')
-              if [ "$CURRENT_PARTITIONS" -lt {{ .Values.kafka.topicPartitions }} ]; then
-                ADD_PARTITIONS=$(({{ .Values.kafka.topicPartitions }} - CURRENT_PARTITIONS))
-                rpk topic add-partitions {{ .Values.kafka.topic }} \
-                  --num "$ADD_PARTITIONS" \
-                  -X brokers={{ .Values.kafka.bootstrap }}
-              fi
+{{ include "fraud-pipeline.topicInit" . | indent 14 }}
       containers:
         - name: producer
           image: {{ .Values.images.producer | quote }}
@@ -53,10 +38,11 @@ spec:
                 name: pipeline-config
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /healthz
@@ -217,25 +203,10 @@ spec:
         - name: kafka-topic-init
           image: {{ .Values.kafka.image | quote }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
-          command: ["/bin/sh", "-c"]
+          command: ["/bin/sh", "-ec"]
           args:
             - |
-              until rpk cluster info -X brokers={{ .Values.kafka.bootstrap }} >/dev/null 2>&1; do
-                echo "Waiting for Kafka..."
-                sleep 2
-              done
-              rpk topic create {{ .Values.kafka.topic }} \
-                --partitions {{ .Values.kafka.topicPartitions }} \
-                --replicas 1 \
-                -X brokers={{ .Values.kafka.bootstrap }} || true
-              CURRENT_PARTITIONS=$(rpk topic describe {{ .Values.kafka.topic }} --print-summary \
-                -X brokers={{ .Values.kafka.bootstrap }} | awk '$1 == "PARTITIONS" { print $2 }')
-              if [ "$CURRENT_PARTITIONS" -lt {{ .Values.kafka.topicPartitions }} ]; then
-                ADD_PARTITIONS=$(({{ .Values.kafka.topicPartitions }} - CURRENT_PARTITIONS))
-                rpk topic add-partitions {{ .Values.kafka.topic }} \
-                  --num "$ADD_PARTITIONS" \
-                  -X brokers={{ .Values.kafka.bootstrap }}
-              fi
+{{ include "fraud-pipeline.topicInit" . | indent 14 }}
       containers:
         - name: processor
           image: {{ .Values.images.processor | quote }}
@@ -256,12 +227,12 @@ spec:
               subPath: merchants.csv
           readinessProbe:
             exec:
-              command: ["test", "-f", "/tmp/processor-ready"]
+              command: ["python", "-c", "import os,time; assert time.time()-os.stat('/tmp/processor-ready').st_mtime < 180"]
             initialDelaySeconds: 3
             periodSeconds: 10
           livenessProbe:
             exec:
-              command: ["test", "-f", "/tmp/processor-ready"]
+              command: ["python", "-c", "import os,time; assert time.time()-os.stat('/tmp/processor-ready').st_mtime < 180"]
             initialDelaySeconds: 15
             periodSeconds: 20
       volumes:

@@ -38,10 +38,13 @@ S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://localhost:9000")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "minioadmin")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin")
 LAKE_BUCKET = os.getenv("LAKE_BUCKET", "fraud")
+LAKE_PREFIX = os.getenv("LAKE_PREFIX", "v2").strip("/")
+KAFKA_PARTITIONS = int(os.getenv("KAFKA_PARTITIONS", "6"))
 
-SILVER = f"s3://{LAKE_BUCKET}/silver/transactions"
-GOLD_VELOCITY = f"s3://{LAKE_BUCKET}/gold/card_velocity"
-GOLD_STATS = f"s3://{LAKE_BUCKET}/gold/fraud_stats"
+SILVER = f"s3://{LAKE_BUCKET}/{LAKE_PREFIX}/silver/transactions"
+# Gold views use the same atomic facts as Silver; no cross-table commit gap.
+GOLD_VELOCITY = SILVER
+GOLD_STATS = SILVER
 
 # delta-rs (object_store) credentials for MinIO
 STORAGE_OPTIONS = {
@@ -50,7 +53,7 @@ STORAGE_OPTIONS = {
     "AWS_SECRET_ACCESS_KEY": S3_SECRET_KEY,
     "AWS_REGION": "us-east-1",
     "AWS_ALLOW_HTTP": "true",          # MinIO over plain HTTP in-cluster
-    "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    "AWS_CONDITIONAL_PUT": "etag",
 }
 
 app = FastAPI(title="Fraud Pipeline - Serving", version="1.0.0")
@@ -65,16 +68,23 @@ STREAM_POLL_MS = int(os.getenv("STREAM_POLL_MS", "1000"))
 SNAPSHOT_CACHE_MS = int(os.getenv("SNAPSHOT_CACHE_MS", "900"))
 _snapshot_lock = threading.Lock()
 _snapshot_cache: dict[
-    int, tuple[float, tuple[int | None, int | None], dict[str, Any]]
+    int, tuple[float, tuple[int | None, ...], dict[str, Any]]
 ] = {}
 
 
 def _read(path: str) -> pd.DataFrame:
-    """Read a Delta table into pandas; return empty frame if it doesn't exist yet."""
-    try:
-        return DeltaTable(path, storage_options=STORAGE_OPTIONS).to_pandas()
-    except (TableNotFoundError, FileNotFoundError, OSError):
+    """Union partition tables; broker outages must not masquerade as zero data."""
+    frames = []
+    for partition in range(KAFKA_PARTITIONS):
+        try:
+            frames.append(DeltaTable(f"{path}/partition-{partition}",
+                                     storage_options=STORAGE_OPTIONS).to_pandas())
+        except TableNotFoundError:
+            continue
+    if not frames:
         return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True).drop_duplicates(
+        ["source_topic", "source_partition", "source_offset"], keep="first")
 
 
 def _summary_from_df(df: pd.DataFrame) -> dict[str, Any]:
@@ -130,7 +140,7 @@ def _dashboard_snapshot(limit: int) -> dict[str, Any]:
     if not flagged_df.empty and "is_fraud" in flagged_df.columns:
         flagged_df = flagged_df[flagged_df["is_fraud"] == 1]
 
-    velocity_df = _read(GOLD_VELOCITY)
+    velocity_df = silver_df
     if not velocity_df.empty and "velocity_alert" in velocity_df.columns:
         velocity_df = velocity_df[velocity_df["velocity_alert"] == 1]
     if not velocity_df.empty and "window_end" in velocity_df.columns:
@@ -143,11 +153,15 @@ def _dashboard_snapshot(limit: int) -> dict[str, Any]:
     }
 
 
-def _table_version(path: str) -> int | None:
-    try:
-        return DeltaTable(path, storage_options=STORAGE_OPTIONS).version()
-    except (TableNotFoundError, FileNotFoundError, OSError):
-        return None
+def _table_version(path: str) -> tuple[int | None, ...]:
+    versions = []
+    for partition in range(KAFKA_PARTITIONS):
+        try:
+            versions.append(DeltaTable(f"{path}/partition-{partition}",
+                                      storage_options=STORAGE_OPTIONS).version())
+        except TableNotFoundError:
+            versions.append(None)
+    return tuple(versions)
 
 
 def _cached_dashboard_snapshot(limit: int) -> dict[str, Any]:
@@ -157,7 +171,7 @@ def _cached_dashboard_snapshot(limit: int) -> dict[str, Any]:
         if cached and (now - cached[0]) * 1000 < SNAPSHOT_CACHE_MS:
             return cached[2]
 
-        versions = (_table_version(SILVER), _table_version(GOLD_VELOCITY))
+        versions = _table_version(SILVER)
         if cached and cached[1] == versions:
             _snapshot_cache[limit] = (now, versions, cached[2])
             return cached[2]
@@ -194,17 +208,26 @@ def velocity(limit: int = Query(50, ge=1, le=1000)):
 
 @app.get("/stats")
 def stats(limit: int = Query(100, ge=1, le=1000)):
-    df = _read(GOLD_STATS)
+    df = category_stats(_read(GOLD_STATS))
     if df.empty:
         return {"items": []}
-    if all(column in df.columns for column in ["window_start", "merchant_category", "updated_at"]):
-        df = (
-            df.sort_values("updated_at")
-            .drop_duplicates(["window_start", "merchant_category"], keep="last")
-        )
-    if "window_end" in df.columns:
-        df = df.sort_values("window_end", ascending=False)
+    df = df.sort_values("window_end", ascending=False)
     return {"items": df.head(limit).to_dict(orient="records")}
+
+
+def category_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate immutable event contributions across every processor partition."""
+    if df.empty:
+        return df
+    df = df.drop_duplicates(["source_topic", "source_partition", "source_offset"])
+    df = df[df["velocity_excluded"] == 0]
+    if df.empty:
+        return pd.DataFrame()
+    return df.groupby(["stats_window_start", "stats_window_end", "merchant_category"],
+                      as_index=False).agg(
+        total=("is_fraud", "size"), flagged=("is_fraud", "sum"),
+        avg_fraud_score=("fraud_score", "mean"), updated_at=("ingest_time", "max")
+    ).rename(columns={"stats_window_start": "window_start", "stats_window_end": "window_end"})
 
 
 @app.get("/stream")

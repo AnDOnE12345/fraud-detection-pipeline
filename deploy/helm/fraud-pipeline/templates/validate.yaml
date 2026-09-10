@@ -1,0 +1,12 @@
+{{- if or (lt (int .Values.kafka.replicationFactor) 1) (gt (int .Values.kafka.replicationFactor) (int .Values.kafka.replicas)) }}
+{{- fail "kafka.replicationFactor must be between 1 and kafka.replicas" }}
+{{- end }}
+{{- if lt (int .Values.kafka.topicPartitions) (int .Values.processor.replicas) }}
+{{- fail "processor.replicas cannot exceed kafka.topicPartitions" }}
+{{- end }}
+{{- if and .Values.keda.enabled (gt (int .Values.keda.processor.maxReplicaCount) (int .Values.kafka.topicPartitions)) }}
+{{- fail "KEDA maximum cannot exceed kafka.topicPartitions" }}
+{{- end }}
+{{- if and .Values.minio.distributed (or (lt (int .Values.minio.serversPerPool) 4) (lt (int .Values.minio.poolCount) 1)) }}
+{{- fail "distributed MinIO requires at least four servers per pool and at least one pool" }}
+{{- end }}

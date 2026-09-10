@@ -6,8 +6,13 @@ metadata:
   labels:
     {{- include "fraud-pipeline.labels" . | nindent 4 }}
 spec:
-  serviceName: minio
-  replicas: 1
+  serviceName: minio-headless
+  podManagementPolicy: Parallel
+  replicas: {{ if .Values.minio.distributed }}{{ mul .Values.minio.serversPerPool .Values.minio.poolCount }}{{ else }}1{{ end }}
+  {{- if .Values.minio.distributed }}
+  updateStrategy:
+    type: OnDelete
+  {{- end }}
   selector:
     matchLabels:
       app: minio
@@ -22,7 +27,18 @@ spec:
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
           resources:
             {{- toYaml .Values.minio.resources | nindent 12 }}
-          args: ["server", "/data", "--console-address", ":9001"]
+          args:
+            - server
+            {{- if .Values.minio.distributed }}
+            {{- $servers := int .Values.minio.serversPerPool }}
+            {{- range $pool := until (int .Values.minio.poolCount) }}
+            - {{ printf "http://minio-{%d...%d}.minio-headless:9000/data" (int (mul $pool $servers)) (int (sub (mul (add $pool 1) $servers) 1)) | quote }}
+            {{- end }}
+            {{- else }}
+            - /data
+            {{- end }}
+            - --console-address
+            - :9001
           env:
             - name: MINIO_ROOT_USER
               valueFrom:
@@ -120,4 +136,17 @@ spec:
                 secretKeyRef:
                   name: pipeline-secrets
                   key: MINIO_ROOT_PASSWORD
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: minio
+  ports:
+    - name: s3
+      port: 9000
 {{- end }}

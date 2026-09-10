@@ -13,6 +13,9 @@ service:
   servingPort: 8000
   uiPort: 8080
 
+storage:
+  prefix: v2
+
 kafka:
   enabled: true
   image: "docker.redpanda.com/redpandadata/redpanda:v24.2.14"
@@ -20,6 +23,7 @@ kafka:
   topic: "transactions"
   topicPartitions: 6
   replicas: 1
+  replicationFactor: 1
   storage: "5Gi"
   resources:
     requests:
@@ -31,6 +35,9 @@ kafka:
 
 minio:
   enabled: true
+  distributed: false
+  serversPerPool: 4
+  poolCount: 1
   image: "minio/minio:RELEASE.2025-02-07T23-21-09Z"
   mcImage: "minio/mc:RELEASE.2025-02-08T19-14-21Z"
   endpoint: "http://minio:9000"
@@ -51,7 +58,6 @@ processor:
   windowSeconds: "60"
   allowedLatenessSeconds: "120"
   flushEvery: "25"
-  flushIntervalMs: "1000"
   highAmount: "800"
   riskThreshold: "0.7"
   velocityThreshold: "10"
@@ -118,4 +124,4 @@ keda:
     minReplicaCount: 1
     maxReplicaCount: 6
     lagThreshold: "20"
-    consumerGroup: "fraud-processor-group"
+    consumerGroup: "fraud-processor-v2"

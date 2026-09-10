@@ -7,13 +7,14 @@ metadata:
 data:
   KAFKA_BOOTSTRAP: {{ .Values.kafka.bootstrap | quote }}
   KAFKA_TOPIC: {{ .Values.kafka.topic | quote }}
+  KAFKA_PARTITIONS: {{ .Values.kafka.topicPartitions | quote }}
   KAFKA_GROUP_ID: {{ .Values.keda.processor.consumerGroup | quote }}
   S3_ENDPOINT: {{ .Values.minio.endpoint | quote }}
   LAKE_BUCKET: {{ .Values.minio.bucket | quote }}
+  LAKE_PREFIX: {{ .Values.storage.prefix | quote }}
   WINDOW_SECONDS: {{ .Values.processor.windowSeconds | quote }}
   ALLOWED_LATENESS_SECONDS: {{ .Values.processor.allowedLatenessSeconds | quote }}
   FLUSH_EVERY: {{ .Values.processor.flushEvery | quote }}
-  FLUSH_INTERVAL_MS: {{ .Values.processor.flushIntervalMs | quote }}
   STREAM_POLL_MS: {{ .Values.serving.streamPollMs | quote }}
   SNAPSHOT_CACHE_MS: {{ .Values.serving.snapshotCacheMs | quote }}
   HIGH_AMOUNT: {{ .Values.processor.highAmount | quote }}

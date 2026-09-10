@@ -12,7 +12,11 @@ from app import (
     _simulation_scenarios,
     _synthetic_transaction,
     simulate,
+    Transaction,
+    submit_transaction,
 )
+from fastapi import HTTPException
+from kafka.errors import KafkaTimeoutError
 
 
 class SyntheticStreamTest(TestCase):
@@ -67,3 +71,16 @@ class SyntheticStreamTest(TestCase):
         self.assertEqual(response["planned"]["normal"], 850)
         self.assertEqual(response["planned"]["velocity_burst"], 15)
         self.assertEqual(len(tasks.tasks), 1)
+
+    @patch("app.get_producer")
+    def test_failed_delivery_is_not_accepted(self, producer):
+        producer.return_value.send.return_value.get.side_effect = KafkaTimeoutError("failed")
+        with self.assertRaises(HTTPException) as error:
+            submit_transaction(Transaction(card_id="c", user_id="u", merchant_id="m", amount=1))
+        self.assertEqual(error.exception.status_code, 503)
+
+    @patch("app.get_producer")
+    def test_transaction_waits_for_broker_ack(self, producer):
+        result = submit_transaction(Transaction(card_id="c", user_id="u", merchant_id="m", amount=1))
+        producer.return_value.send.return_value.get.assert_called_once_with(timeout=30)
+        self.assertTrue(result["accepted"])

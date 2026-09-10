@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 .env
+.tools/
 
 # Local data / runtime artifacts
 _local_data/

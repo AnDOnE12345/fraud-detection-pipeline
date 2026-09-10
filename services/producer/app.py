@@ -25,7 +25,7 @@ from typing import Literal
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from kafka import KafkaProducer
-from kafka.errors import NoBrokersAvailable
+from kafka.errors import KafkaError, NoBrokersAvailable
 from pydantic import BaseModel, Field
 
 # --------------------------------------------------------------------------- #
@@ -79,6 +79,7 @@ def get_producer() -> KafkaProducer:
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
             acks="all",          # durability: wait for all in-sync replicas
             retries=5,           # producer-side retry -> no silent loss
+            max_in_flight_requests_per_connection=1,
             linger_ms=20,        # small batching for throughput
         )
     return _producer
@@ -96,6 +97,7 @@ class Transaction(BaseModel):
     lat: float = Field(default=48.06)
     lon: float = Field(default=8.53)
     country: str = Field(default="DE")
+    event_time: str | None = Field(default=None, description="Optional ISO-8601 event time for late-data demos.")
 
 
 def _now_iso() -> str:
@@ -105,7 +107,8 @@ def _now_iso() -> str:
 def _to_event(tx: dict) -> dict:
     """Attach identifiers / event-time that the stream processor relies on."""
     tx.setdefault("transaction_id", str(uuid.uuid4()))
-    tx.setdefault("event_time", _now_iso())
+    if not tx.get("event_time"):
+        tx["event_time"] = _now_iso()
     return tx
 
 
@@ -113,7 +116,7 @@ def _publish(event: dict) -> None:
     producer = get_producer()
     # Key by card_id so all events of one card land in the same partition
     # (preserves per-card ordering for stateful velocity checks).
-    producer.send(KAFKA_TOPIC, key=event["card_id"], value=event)
+    producer.send(KAFKA_TOPIC, key=event["card_id"], value=event).get(timeout=30)
 
 
 # --------------------------------------------------------------------------- #
@@ -132,6 +135,16 @@ def rules():
     }
 
 
+@app.get("/readyz")
+def readyz():
+    try:
+        if not get_producer().bootstrap_connected():
+            raise HTTPException(status_code=503, detail="Kafka disconnected")
+    except KafkaError as exc:
+        raise HTTPException(status_code=503, detail="Kafka unavailable") from exc
+    return {"status": "ready"}
+
+
 @app.post("/transactions")
 def submit_transaction(tx: Transaction):
     """Ingest a single transaction coming from the UI (data-provider role)."""
@@ -140,7 +153,7 @@ def submit_transaction(tx: Transaction):
         _publish(event)
         get_producer().flush(timeout=5)
         return {"accepted": True, "transaction_id": event["transaction_id"]}
-    except NoBrokersAvailable as exc:  # pragma: no cover - infra dependent
+    except KafkaError as exc:  # delivery errors must not become accepted=True
         raise HTTPException(status_code=503, detail=f"Kafka unavailable: {exc}")
 
 

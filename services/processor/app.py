@@ -1,309 +1,231 @@
-"""Kafka stream processor for enrichment, fraud scoring and windowed metrics.
-
-The processor uses a lightweight Python consumer as an alternative streaming
-engine. It keeps event-time state in memory and persists derived Silver and
-Gold tables in Delta format on MinIO.
-"""
-
+"""Atomic event facts and window features, recovered by Kafka partition."""
 from __future__ import annotations
 
 import json
 import os
 import time
-from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
+import pyarrow as pa
+from deltalake import DeltaTable
+from deltalake.exceptions import TableNotFoundError
 from deltalake.writer import write_deltalake
 from kafka import KafkaConsumer
-from kafka.errors import NoBrokersAvailable
+from kafka.consumer.subscription_state import ConsumerRebalanceListener
+from kafka.errors import CommitFailedError, NoBrokersAvailable
+from kafka.structs import OffsetAndMetadata
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "transactions")
 KAFKA_GROUP_ID = os.getenv("KAFKA_GROUP_ID", "fraud-processor-group")
-
-S3_ENDPOINT = os.getenv("S3_ENDPOINT", "http://localhost:9000")
-S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "minioadmin")
-S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin")
 LAKE_BUCKET = os.getenv("LAKE_BUCKET", "fraud")
+LAKE_PREFIX = os.getenv("LAKE_PREFIX", "v2").strip("/")
+SILVER = f"s3://{LAKE_BUCKET}/{LAKE_PREFIX}/silver/transactions"
 MERCHANTS_PATH = os.getenv("MERCHANTS_PATH", "/data/merchants.csv")
-
 HIGH_AMOUNT = float(os.getenv("HIGH_AMOUNT", "800"))
 RISK_THRESHOLD = float(os.getenv("RISK_THRESHOLD", "0.7"))
 VELOCITY_THRESHOLD = int(os.getenv("VELOCITY_THRESHOLD", "10"))
 WINDOW_DURATION = int(os.getenv("WINDOW_SECONDS", "60"))
 ALLOWED_LATENESS = int(os.getenv("ALLOWED_LATENESS_SECONDS", "120"))
 FLUSH_EVERY = int(os.getenv("FLUSH_EVERY", "25"))
-FLUSH_INTERVAL_MS = int(os.getenv("FLUSH_INTERVAL_MS", "1000"))
-
-SILVER = f"s3://{LAKE_BUCKET}/silver/transactions"
-GOLD_VELOCITY = f"s3://{LAKE_BUCKET}/gold/card_velocity"
-GOLD_STATS = f"s3://{LAKE_BUCKET}/gold/fraud_stats"
-
 STORAGE_OPTIONS = {
-    "AWS_ENDPOINT_URL": S3_ENDPOINT,
-    "AWS_ACCESS_KEY_ID": S3_ACCESS_KEY,
-    "AWS_SECRET_ACCESS_KEY": S3_SECRET_KEY,
-    "AWS_REGION": "us-east-1",
-    "AWS_ALLOW_HTTP": "true",
-    "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    "AWS_ENDPOINT_URL": os.getenv("S3_ENDPOINT", "http://localhost:9000"),
+    "AWS_ACCESS_KEY_ID": os.getenv("S3_ACCESS_KEY", "minioadmin"),
+    "AWS_SECRET_ACCESS_KEY": os.getenv("S3_SECRET_KEY", "minioadmin"),
+    "AWS_REGION": "us-east-1", "AWS_ALLOW_HTTP": "true",
+    "AWS_CONDITIONAL_PUT": "etag",
 }
 
+# UTC ISO-8601 strings are intentional for JSON/UI interoperability.
+SCHEMA = pa.schema([
+    pa.field(name, pa.string(), nullable=name in {"user_id", "country"})
+    for name in ["transaction_id", "event_time", "ingest_time", "event_date",
+                 "card_id", "user_id", "merchant_id", "merchant_category",
+                 "merchant_country", "currency", "country", "window_start",
+                 "window_end", "stats_window_start", "stats_window_end", "source_topic"]
+] + [pa.field(name, pa.float64(), nullable=name in {"lat", "lon"})
+     for name in ["merchant_risk", "amount", "lat", "lon", "fraud_score",
+                  "amount_sum", "max_fraud_score"]]
+  + [pa.field(name, pa.int64(), nullable=False)
+     for name in ["amount_flag", "merchant_flag", "is_fraud", "is_late",
+                  "event_time_fallback", "velocity_excluded", "tx_count",
+                  "velocity_alert", "source_partition", "source_offset"]])
 
-def parse_event_time(value: str | None) -> tuple[datetime, bool]:
-    if not value:
-        return datetime.now(timezone.utc), True
+
+def parse_event_time(value: str | None, fallback: datetime | None = None) -> tuple[datetime, bool]:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc), False
-    except ValueError:
-        return datetime.now(timezone.utc), True
+    except (AttributeError, TypeError, ValueError):
+        return fallback or datetime.now(timezone.utc), True
 
 
-def load_merchants(path: str) -> dict[str, dict[str, Any]]:
-    df = pd.read_csv(path)
-    return {
-        str(row["merchant_id"]): {
-            "merchant_category": row.get("category", "unknown"),
-            "merchant_country": row.get("country", "unknown"),
-            "merchant_risk": float(row.get("risk_score", 0.0)),
-        }
-        for _, row in df.iterrows()
-    }
-
-
-def write_delta(
-    path: str,
-    rows: list[dict[str, Any]],
-    partition_by: list[str] | None = None,
-) -> None:
-    if not rows:
-        return
-    df = pd.DataFrame(rows)
-    write_deltalake(
-        path,
-        df,
-        mode="append",
-        schema_mode="merge",
-        partition_by=partition_by,
-        storage_options=STORAGE_OPTIONS,
-    )
+def load_merchants(path: str) -> dict:
+    return {str(row["merchant_id"]): {
+        "merchant_category": str(row["category"]),
+        "merchant_country": str(row["country"]),
+        "merchant_risk": float(row["risk_score"]),
+    } for _, row in pd.read_csv(path).iterrows()}
 
 
 def fraud_signals(amount: float, merchant_risk: float) -> tuple[int, int, float, int]:
     amount_flag = int(amount > HIGH_AMOUNT)
     merchant_flag = int(merchant_risk >= RISK_THRESHOLD)
-    amount_component = 0.5 * min(max(amount / max(HIGH_AMOUNT, 1.0), 0.0), 2.0) / 2.0
-    merchant_component = 0.5 * min(max(merchant_risk, 0.0), 1.0)
-    fraud_score = round(amount_component + merchant_component, 4)
-    is_fraud = int(amount_flag == 1 or merchant_flag == 1)
-    return amount_flag, merchant_flag, fraud_score, is_fraud
+    score = 0.5 * min(max(amount / max(HIGH_AMOUNT, 1.0), 0.0), 2.0) / 2.0
+    score += 0.5 * min(max(merchant_risk, 0.0), 1.0)
+    return amount_flag, merchant_flag, round(score, 4), int(amount_flag or merchant_flag)
 
 
 def fixed_window(event_time: datetime) -> tuple[datetime, datetime]:
-    start_epoch = int(event_time.timestamp()) // WINDOW_DURATION * WINDOW_DURATION
-    start = datetime.fromtimestamp(start_epoch, tz=timezone.utc)
+    start = datetime.fromtimestamp(
+        int(event_time.timestamp()) // WINDOW_DURATION * WINDOW_DURATION, tz=timezone.utc)
     return start, start + timedelta(seconds=WINDOW_DURATION)
 
 
-def flush_pending(
-    consumer: KafkaConsumer,
-    silver_rows: list[dict[str, Any]],
-    velocity_rows: list[dict[str, Any]],
-    stats_rows: dict[tuple[datetime, str], dict[str, Any]],
-) -> None:
-    if not silver_rows:
-        return
+class WindowState:
+    """A partition watermark bounds all keys, including inactive cards."""
+    def __init__(self):
+        self.latest: datetime | None = None
+        self.cards: dict[str, list[tuple[datetime, float, float]]] = {}
 
-    write_delta(SILVER, silver_rows, partition_by=["event_date"])
-    write_delta(GOLD_VELOCITY, velocity_rows)
-    write_delta(GOLD_STATS, list(stats_rows.values()))
-    consumer.commit()
+    def prune(self):
+        if self.latest is None:
+            return
+        cutoff = self.latest - timedelta(seconds=WINDOW_DURATION + ALLOWED_LATENESS)
+        self.cards = {card: kept for card, items in self.cards.items()
+                      if (kept := [item for item in items if item[0] >= cutoff])}
 
-    print("Flushed batch to Delta tables")
-    print(
-        f"Batch details: {len(silver_rows)} Silver, {len(velocity_rows)} velocity, "
-        f"{len(stats_rows)} stats rows"
-    )
-    silver_rows.clear()
-    velocity_rows.clear()
-    stats_rows.clear()
+    def add(self, card: str, at: datetime, amount: float, score: float) -> dict:
+        late = self.latest is not None and at < self.latest
+        excluded = self.latest is not None and at < self.latest - timedelta(seconds=ALLOWED_LATENESS)
+        self.latest = max(self.latest, at) if self.latest else at
+        self.prune()
+        if not excluded:
+            self.cards.setdefault(card, []).append((at, amount, score))
+        start = at - timedelta(seconds=WINDOW_DURATION)
+        window = [item for item in self.cards.get(card, []) if start <= item[0] <= at]
+        return {
+            "is_late": int(late), "velocity_excluded": int(excluded),
+            "window_start": start.isoformat(), "window_end": at.isoformat(),
+            "tx_count": len(window), "amount_sum": round(sum(item[1] for item in window), 2),
+            "max_fraud_score": max((item[2] for item in window), default=score),
+            "velocity_alert": int(len(window) > VELOCITY_THRESHOLD and not excluded),
+        }
+
+    @classmethod
+    def restore(cls, records: list[dict]):
+        state = cls()
+        if not records:
+            return state
+        state.latest = max(parse_event_time(row["event_time"])[0] for row in records)
+        cutoff = state.latest - timedelta(seconds=WINDOW_DURATION + ALLOWED_LATENESS)
+        for row in records:
+            at = parse_event_time(row["event_time"])[0]
+            if not row["velocity_excluded"] and at >= cutoff:
+                state.cards.setdefault(row["card_id"], []).append((at, row["amount"], row["fraud_score"]))
+        return state
 
 
-def main() -> None:
+def enrich(event: dict, partition: int, offset: int, timestamp: int,
+           merchants: dict, state: WindowState) -> dict:
+    fallback = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+    at, used_fallback = parse_event_time(event.get("event_time"), fallback)
+    merchant_id = str(event.get("merchant_id", "unknown"))
+    merchant = merchants.get(merchant_id, {
+        "merchant_category": "unknown", "merchant_country": "unknown", "merchant_risk": 0.0})
+    amount = float(event.get("amount", 0.0))
+    amount_flag, merchant_flag, score, fraud = fraud_signals(amount, merchant["merchant_risk"])
+    card = str(event.get("card_id", "unknown"))
+    stats_start, stats_end = fixed_window(at)
+    return {
+        "transaction_id": str(event.get("transaction_id") or f"{KAFKA_TOPIC}:{partition}:{offset}"),
+        "event_time": at.isoformat(), "ingest_time": datetime.now(timezone.utc).isoformat(),
+        "event_date": at.date().isoformat(), "card_id": card,
+        "user_id": event.get("user_id"), "merchant_id": merchant_id, **merchant,
+        "amount": amount, "currency": event.get("currency", "EUR"),
+        "lat": event.get("lat"), "lon": event.get("lon"), "country": event.get("country"),
+        "amount_flag": amount_flag, "merchant_flag": merchant_flag,
+        "fraud_score": score, "is_fraud": fraud, "event_time_fallback": int(used_fallback),
+        "stats_window_start": stats_start.isoformat(), "stats_window_end": stats_end.isoformat(),
+        "source_topic": KAFKA_TOPIC, "source_partition": partition, "source_offset": offset,
+        **state.add(card, at, amount, score),
+    }
+
+
+def partition_path(partition: int) -> str:
+    return f"{SILVER}/partition-{partition}"
+
+
+def recover(partition: int) -> tuple[WindowState, int]:
+    try:
+        frame = DeltaTable(partition_path(partition), storage_options=STORAGE_OPTIONS).to_pandas()
+    except TableNotFoundError:
+        return WindowState(), -1
+    frame = frame.drop_duplicates(["source_topic", "source_partition", "source_offset"])
+    return WindowState.restore(frame.to_dict("records")), int(frame["source_offset"].max())
+
+
+class Assignment(ConsumerRebalanceListener):
+    def __init__(self):
+        self.states = {}
+
+    def on_partitions_revoked(self, revoked):
+        self.states.clear()
+
+    def on_partitions_assigned(self, assigned):
+        self.states.clear()
+
+
+def process_batch(messages, merchants, state, persisted_offset):
+    rows = []
+    for msg in messages:
+        if msg.offset > persisted_offset:
+            rows.append(enrich(msg.value, msg.partition, msg.offset, msg.timestamp, merchants, state))
+    if rows:
+        write_deltalake(partition_path(messages[0].partition),
+                        pa.Table.from_pylist(rows, schema=SCHEMA), mode="append",
+                        schema_mode="merge", partition_by=["event_date"], storage_options=STORAGE_OPTIONS)
+        persisted_offset = rows[-1]["source_offset"]
+        print(json.dumps({"written": len(rows), "last_offset": persisted_offset,
+                          "sample": rows[-1]}, default=str), flush=True)
+    return persisted_offset
+
+
+def main():
     merchants = load_merchants(MERCHANTS_PATH)
-
-    consumer = None
-    while consumer is None:
+    assignment = Assignment()
+    while True:
         try:
             consumer = KafkaConsumer(
-                KAFKA_TOPIC,
-                bootstrap_servers=KAFKA_BOOTSTRAP.split(","),
-                group_id=KAFKA_GROUP_ID,
-                auto_offset_reset="earliest",
-                enable_auto_commit=False,
-                value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-                key_deserializer=lambda m: m.decode("utf-8") if m else None,
-            )
+                bootstrap_servers=KAFKA_BOOTSTRAP.split(","), group_id=KAFKA_GROUP_ID,
+                auto_offset_reset="earliest", enable_auto_commit=False,
+                max_poll_interval_ms=300000,
+                value_deserializer=lambda value: json.loads(value.decode("utf-8")))
+            break
         except NoBrokersAvailable:
-            print("Kafka not ready yet, retrying in 3s...")
             time.sleep(3)
-
-    Path("/tmp/processor-ready").touch()
-
-    # Each entry is (event_time, amount, fraud_score). Kafka keys keep all
-    # events for one card in the same partition/consumer.
-    card_windows: dict[str, deque[tuple[datetime, float, float]]] = defaultdict(deque)
-    latest_card_time: dict[str, datetime] = {}
-    stats_state: dict[tuple[datetime, str], dict[str, float | int]] = {}
-    latest_global_time: datetime | None = None
-
-    silver_rows: list[dict[str, Any]] = []
-    velocity_rows: list[dict[str, Any]] = []
-    stats_rows: dict[tuple[datetime, str], dict[str, Any]] = {}
-    last_flush = time.monotonic()
-
-    print("Processor started. Waiting for Kafka events...")
-
-    while True:
-        polled = consumer.poll(timeout_ms=250, max_records=FLUSH_EVERY)
-
-        for messages in polled.values():
-            for msg in messages:
-                event = msg.value
-                event_time, used_time_fallback = parse_event_time(event.get("event_time"))
-                if used_time_fallback:
-                    print(f"Invalid event_time for transaction {event.get('transaction_id')}; using UTC now")
-
-                card_id = str(event.get("card_id", "unknown"))
-                merchant_id = str(event.get("merchant_id", "unknown"))
-                amount = float(event.get("amount", 0.0))
-
-                merchant = merchants.get(
-                    merchant_id,
-                    {
-                        "merchant_category": "unknown",
-                        "merchant_country": "unknown",
-                        "merchant_risk": 0.0,
-                    },
-                )
-
-                merchant_risk = float(merchant["merchant_risk"])
-                amount_flag, merchant_flag, fraud_score, is_fraud = fraud_signals(
-                    amount, merchant_risk
-                )
-
-                previous_latest = latest_card_time.get(card_id, event_time)
-                is_late = event_time < previous_latest
-                is_too_late = event_time < previous_latest - timedelta(seconds=ALLOWED_LATENESS)
-                latest_card_time[card_id] = max(previous_latest, event_time)
-
-                card_state = card_windows[card_id]
-                if not is_too_late:
-                    card_state.append((event_time, amount, fraud_score))
-
-                retention_start = latest_card_time[card_id] - timedelta(
-                    seconds=WINDOW_DURATION + ALLOWED_LATENESS
-                )
-                card_state = deque(item for item in card_state if item[0] >= retention_start)
-                card_windows[card_id] = card_state
-
-                window_start = event_time - timedelta(seconds=WINDOW_DURATION)
-                current_window = [
-                    item for item in card_state if window_start <= item[0] <= event_time
-                ]
-                tx_count = len(current_window)
-                amount_sum = round(sum(item[1] for item in current_window), 2)
-                max_fraud_score = max((item[2] for item in current_window), default=fraud_score)
-                velocity_alert = int(tx_count > VELOCITY_THRESHOLD and not is_too_late)
-
-                silver_rows.append(
-                    {
-                        "transaction_id": event.get("transaction_id"),
-                        "event_time": event_time.isoformat(),
-                        "ingest_time": datetime.now(timezone.utc).isoformat(),
-                        "event_date": event_time.date().isoformat(),
-                        "card_id": card_id,
-                        "user_id": event.get("user_id"),
-                        "merchant_id": merchant_id,
-                        "merchant_category": merchant["merchant_category"],
-                        "merchant_country": merchant["merchant_country"],
-                        "merchant_risk": merchant_risk,
-                        "amount": amount,
-                        "currency": event.get("currency", "EUR"),
-                        "lat": event.get("lat"),
-                        "lon": event.get("lon"),
-                        "country": event.get("country"),
-                        "amount_flag": amount_flag,
-                        "merchant_flag": merchant_flag,
-                        "fraud_score": fraud_score,
-                        "is_fraud": is_fraud,
-                        "is_late": int(is_late),
-                        "event_time_fallback": int(used_time_fallback),
-                        "velocity_excluded": int(is_too_late),
-                    }
-                )
-
-                velocity_rows.append(
-                    {
-                        "window_start": window_start.isoformat(),
-                        "window_end": event_time.isoformat(),
-                        "card_id": card_id,
-                        "tx_count": tx_count,
-                        "amount_sum": amount_sum,
-                        "max_fraud_score": max_fraud_score,
-                        "velocity_alert": velocity_alert,
-                        "late_event_excluded": int(is_too_late),
-                    }
-                )
-
-                if not is_too_late:
-                    stats_start, stats_end = fixed_window(event_time)
-                    category = str(merchant["merchant_category"])
-                    stats_key = (stats_start, category)
-                    aggregate = stats_state.setdefault(
-                        stats_key, {"total": 0, "flagged": 0, "score_sum": 0.0}
-                    )
-                    aggregate["total"] += 1
-                    aggregate["flagged"] += is_fraud
-                    aggregate["score_sum"] += fraud_score
-                    total = int(aggregate["total"])
-                    stats_rows[stats_key] = {
-                        "window_start": stats_start.isoformat(),
-                        "window_end": stats_end.isoformat(),
-                        "merchant_category": category,
-                        "total": total,
-                        "flagged": int(aggregate["flagged"]),
-                        "avg_fraud_score": round(float(aggregate["score_sum"]) / total, 4),
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    }
-
-                latest_global_time = (
-                    event_time
-                    if latest_global_time is None
-                    else max(latest_global_time, event_time)
-                )
-                stats_retention = latest_global_time - timedelta(
-                    seconds=WINDOW_DURATION + ALLOWED_LATENESS
-                )
-                for key in list(stats_state):
-                    if key[0] < stats_retention:
-                        del stats_state[key]
-
-        flush_due_to_size = len(silver_rows) >= FLUSH_EVERY
-        flush_due_to_time = (
-            silver_rows
-            and (time.monotonic() - last_flush) * 1000 >= FLUSH_INTERVAL_MS
-        )
-        if flush_due_to_size or flush_due_to_time:
-            flush_pending(consumer, silver_rows, velocity_rows, stats_rows)
-            last_flush = time.monotonic()
-
-        time.sleep(0.01)
+    consumer.subscribe([KAFKA_TOPIC], listener=assignment)
+    try:
+        while True:
+            batches = consumer.poll(timeout_ms=1000, max_records=FLUSH_EVERY)
+            for tp, messages in batches.items():
+                if tp not in assignment.states:
+                    assignment.states[tp] = recover(tp.partition)
+                state, persisted = assignment.states[tp]
+                persisted = process_batch(messages, merchants, state, persisted)
+                assignment.states[tp] = state, persisted
+                try:
+                    consumer.commit({tp: OffsetAndMetadata(messages[-1].offset + 1, "")})
+                except CommitFailedError:
+                    assignment.states.clear()
+                    break
+            Path("/tmp/processor-ready").touch()
+    finally:
+        consumer.close(autocommit=False)
 
 
 if __name__ == "__main__":

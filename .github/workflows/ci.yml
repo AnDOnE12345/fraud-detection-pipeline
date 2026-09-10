@@ -46,13 +46,16 @@ jobs:
       - name: Setup Helm
         uses: azure/setup-helm@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install manifest test dependency
+        run: pip install PyYAML==6.0.3
+
       - name: Render Helm chart
-        run: |
-          helm template fraud-pipeline deploy/helm/fraud-pipeline > rendered.yaml
-          helm template fraud-pipeline deploy/helm/fraud-pipeline \
-            --set keda.enabled=true > rendered-keda.yaml
-          test -s rendered.yaml
-          test -s rendered-keda.yaml
+        run: python scripts/check_chart.py
 
   docker-build:
     runs-on: ubuntu-latest
