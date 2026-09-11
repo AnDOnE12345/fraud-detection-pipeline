@@ -14,12 +14,33 @@ from app import (
     simulate,
     Transaction,
     submit_transaction,
+    readyz,
 )
 from fastapi import HTTPException
 from kafka.errors import KafkaTimeoutError
 
 
 class SyntheticStreamTest(TestCase):
+    @patch("app.get_producer")
+    def test_ready_after_bootstrap_disconnect_with_topic_available(self, producer):
+        producer.return_value.bootstrap_connected.return_value = False
+        producer.return_value.partitions_for.return_value = {0, 1}
+        self.assertEqual(readyz(), {"status": "ready"})
+
+    @patch("app.get_producer")
+    def test_not_ready_without_topic_metadata(self, producer):
+        producer.return_value.partitions_for.return_value = set()
+        with self.assertRaises(HTTPException) as error:
+            readyz()
+        self.assertEqual(error.exception.status_code, 503)
+
+    @patch("app.get_producer")
+    def test_not_ready_when_metadata_request_fails(self, producer):
+        producer.return_value.partitions_for.side_effect = KafkaTimeoutError("failed")
+        with self.assertRaises(HTTPException) as error:
+            readyz()
+        self.assertEqual(error.exception.status_code, 503)
+
     def test_ratio_is_exact_and_reasons_are_balanced(self) -> None:
         scenarios = _simulation_scenarios(1000, 0.15)
         counts = Counter(scenarios)

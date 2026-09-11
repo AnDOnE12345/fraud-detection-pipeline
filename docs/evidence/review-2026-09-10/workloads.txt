@@ -1,0 +1,18 @@
+﻿NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/processor   1/1     1            1           4h
+deployment.apps/producer    1/1     1            1           4h
+deployment.apps/serving     2/2     2            2           4h
+deployment.apps/ui          1/1     1            1           4h
+
+NAME                     READY   AGE
+statefulset.apps/kafka   1/1     4h
+statefulset.apps/minio   1/1     4h
+
+NAME                                               REFERENCE             TARGETS        MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/producer-hpa   Deployment/producer   cpu: 12%/70%   1         5         1          4h
+horizontalpodautoscaler.autoscaling/serving-hpa    Deployment/serving    cpu: 59%/70%   1         5         2          4h
+horizontalpodautoscaler.autoscaling/ui-hpa         Deployment/ui         cpu: 5%/70%    1         3         1          4h
+
+NAME                                 STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/data-kafka-0   Bound    pvc-b06f2616-b629-42f0-a0c6-adf11c23050a   5Gi        RWO            standard       <unset>                 4h
+persistentvolumeclaim/data-minio-0   Bound    pvc-42d3a067-cba1-4946-a23c-1777b533b19f   10Gi       RWO            standard       <unset>                 4h

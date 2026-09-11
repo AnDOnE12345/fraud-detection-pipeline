@@ -4,8 +4,9 @@ Course: Cloud Computing und Big Data - Pruefungsleistung 2026
 
 This prototype implements a Kappa payment-event pipeline with a separately deployed web UI.
 The current v2 implementation fixes recovery and cross-processor aggregation. Python tests and
-Helm rendering have been checked; **a new Kubernetes run and fresh screenshots are still required**.
-The images in section 11 come from the earlier implementation and are explicitly labelled.
+the local Kubernetes deployment have been checked; section 11 includes updated UI, API, pod,
+processing-output and HPA screenshots. The distributed scale profile still requires a live
+demonstration.
 
 ## 1. Use Case und Motivation
 
@@ -175,12 +176,13 @@ The [Helm chart](deploy/helm/fraud-pipeline) declares all components, Services, 
 Producer, processor, serving and UI use Deployments. Redpanda and MinIO use StatefulSets with
 headless Services and persistent volumes. ConfigMaps contain endpoints, thresholds and merchant
 data; a Secret supplies storage credentials. All main containers declare resources and probes.
-Producer readiness checks its Kafka connection; processor probes check recent poll progress.
+Producer readiness checks Kafka topic partition metadata; each publication separately waits for
+broker acknowledgement. Processor probes check recent poll progress.
 
 | Component | Horizontal scale path |
 | --- | --- |
 | Producer / serving / UI | HPA; scale profile starts at two replicas for each. |
-| Processor | Kafka consumer group, two replicas in scale profile; optional KEDA up to six, bounded by fixed topic partitions. Assignment restores partition history. |
+| Processor | Kafka consumer group, two replicas in scale profile without KEDA; optional KEDA up to six, bounded by fixed topic partitions. Assignment restores partition history. |
 | Kafka | Three brokers in scale profile; unique pod DNS/node IDs and RPC seed configuration. New topics use replication factor three. |
 | MinIO | Four servers in an erasure-coded pool in scale profile. Add complete pools with `minio.poolCount`, keeping servers-per-pool unchanged. |
 
@@ -195,59 +197,235 @@ or configured replicas proves a successful deployment.
 
 ## 9. Deployment-Anleitung
 
-### Prerequisites and image build
+### Local quick start — Windows PowerShell
 
-Install Docker, Minikube, kubectl and Helm v3. For the scale profile, start with approximately
-8 CPUs and 12 GB RAM available to Minikube (a planning allowance, not a measured minimum):
+Install Docker Desktop, Minikube, kubectl and Helm v3, then open a new PowerShell terminal so
+the commands are available in PATH. Start Docker Desktop with Linux containers and wait until
+its engine is running. Run the commands below from the project root, containing `README.md`,
+`services` and `deploy`. Run each step in order and resolve any error before continuing.
 
-```bash
-minikube start --cpus=8 --memory=12288
-minikube addons enable metrics-server
+The local screenshots used 4 CPUs and 3000 MB for Minikube on an 8 GB Windows host. This is an
+observed lab configuration, not a guaranteed minimum. Docker must expose at least the requested
+resources; the distributed profile below needs a larger environment. This quick start creates
+the local profile `minikube` and namespace `fraud-lab`. For an existing installation, use the
+update instructions below instead of treating it as a fresh deployment.
+
+Start the cluster and enable CPU metrics for HPA:
+
+```powershell
+minikube -p minikube start --driver=docker --cpus=4 --memory=3000
+minikube -p minikube addons enable metrics-server
+kubectl --context minikube get storageclass
+```
+
+The cluster needs a default StorageClass that can provision the Kafka and MinIO PVCs.
+Build all four images from the current source and load them into this profile:
+
+```powershell
 docker build -t local/fraud-producer:dev services/producer
 docker build -t local/fraud-processor:dev services/processor
 docker build -t local/fraud-serving:dev services/serving
 docker build -t local/fraud-ui:dev services/ui
-minikube image load local/fraud-producer:dev
-minikube image load local/fraud-processor:dev
-minikube image load local/fraud-serving:dev
-minikube image load local/fraud-ui:dev
+minikube -p minikube image load local/fraud-producer:dev
+minikube -p minikube image load local/fraud-processor:dev
+minikube -p minikube image load local/fraud-serving:dev
+minikube -p minikube image load local/fraud-ui:dev
 ```
 
-For k3d, use `k3d image import`; for a remote cluster push images to its registry and override
-`images.*`. The cluster must have a default StorageClass capable of provisioning the requested PVCs.
+Install the chart, wait for application readiness, and inspect the resulting resources:
+
+```powershell
+helm upgrade --install fraud-pipeline deploy/helm/fraud-pipeline --kube-context minikube --namespace fraud-lab --create-namespace
+kubectl --context minikube -n fraud-lab wait --for=condition=ready pod --all --timeout=600s
+kubectl --context minikube -n fraud-lab get pods
+kubectl --context minikube -n fraud-lab get deployment,statefulset,hpa,pvc
+```
+
+Bucket creation is a Helm post-install/post-upgrade Job. Keep the separate readiness check above;
+do not substitute Helm `--wait` for this installation sequence. All application pods should be
+ready and the PVCs should be `Bound` before using the UI.
+
+```powershell
+kubectl --context minikube -n fraud-lab port-forward svc/ui 8080:8080
+```
+
+Open `http://localhost:8080`. Leave this terminal running while using the UI; port-forward does
+not return to the prompt during normal operation. Use a second PowerShell terminal for other
+commands. `Ctrl+C` stops forwarding, not the deployed services; rerun the same command to reconnect.
+If the cluster was stopped, start it again with `minikube -p minikube start` first. Closing and
+reopening a terminal does not require reinstalling the chart or rebuilding images.
+
+Submit a payment and wait for `Accepted` and the dashboard update. For a visible flagged example,
+use merchant M0002 and amount 1299.99. A simulation with Count 200 and Flagged share 15 schedules
+215 events, including the extra 15-payment velocity burst. After processing, the dashboard and
+`http://localhost:8080/api/serving/summary` should agree on the total and flagged counts.
+
+If a pod is not ready or an API request fails, inspect its status and logs before retrying:
+
+```powershell
+kubectl --context minikube -n fraud-lab get events --sort-by=.lastTimestamp
+kubectl --context minikube -n fraud-lab describe pod -l app=producer
+kubectl --context minikube -n fraud-lab logs deployment/producer -c producer --tail=30
+kubectl --context minikube -n fraud-lab logs deployment/processor -c processor --tail=10
+```
+
+Use the affected component's label/container for other services. Explicit `-c processor` or
+`-c producer` selects the application container rather than its Kafka initialization container.
+
+### Update an application image
+
+Use a new image tag for each build. The following PowerShell example updates only producer in
+the existing local release; use the same terminal for the variable and subsequent commands:
+
+```powershell
+$producerImage = 'local/fraud-producer:dev-' + (Get-Date -Format 'yyyyMMddHHmmss')
+docker build -t $producerImage services/producer
+minikube -p minikube image load $producerImage
+helm upgrade fraud-pipeline deploy/helm/fraud-pipeline --kube-context minikube --namespace fraud-lab --reuse-values --set-string "images.producer=$producerImage"
+kubectl --context minikube -n fraud-lab rollout status deployment/producer --timeout=600s
+```
+
+The changed tag updates the Deployment and starts new pods automatically. For another service,
+change the build directory, image name, `images.<service>` key and Deployment name together.
+For UI updates, reconnect port-forward if its selected pod terminates, then reload the page.
+This update sequence assumes unchanged processing semantics. For a new processor image that
+changes rule semantics, build/load it first, then apply its tag together with a new prefix/group
+in the maintenance replay procedure below; do not deploy new rules against the existing prefix.
+
+`--reuse-values` retains the release's existing Helm settings, such as image tags and scale/KEDA
+configuration; it does not preserve arbitrary manual changes made with `kubectl`.
+See [Helm upgrade options](https://helm.sh/docs/helm/helm_upgrade/).
+The locally verified producer previously used `local/fraud-producer:readiness-fix`, applied with
+`kubectl set image`; the command above records the newly built image in Helm so later upgrades
+retain that choice. A fresh install must build the current source, not reuse an older `:dev` image.
+
+Rebuilding the same tag alone does not update running pods. If deliberately reusing a tag,
+rebuild and reload the image into Minikube, then run:
+
+```powershell
+kubectl --context minikube -n fraud-lab rollout restart deployment/producer
+kubectl --context minikube -n fraud-lab rollout status deployment/producer --timeout=600s
+```
+
+This only works when the Deployment already references that exact tag; otherwise update
+`images.producer` through Helm first.
+
+### Apply configuration changes
+
+The following example covers application settings supplied through the `pipeline-config` ConfigMap.
+There is no configuration checksum in the pod template: changing only a ConfigMap does not restart
+existing pods or refresh their environment. Restart every affected service after the Helm update.
+The merchant CSV is mounted through `subPath` and read at processor startup, so changing it also
+requires a processor restart. Keep [the source CSV](data/merchants.csv) and
+[the CSV packaged by Helm](deploy/helm/fraud-pipeline/files/merchants.csv) synchronized: the chart
+mounts the latter, not the root `data` directory. See
+[Kubernetes ConfigMap update behavior](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/).
+
+For example, change the serving stream polling interval to 1500 ms:
+
+```powershell
+helm upgrade fraud-pipeline deploy/helm/fraud-pipeline --kube-context minikube --namespace fraud-lab --reuse-values --set-string serving.streamPollMs=1500
+kubectl --context minikube -n fraud-lab rollout restart deployment/serving
+kubectl --context minikube -n fraud-lab rollout status deployment/serving --timeout=600s
+```
+
+Reload the UI after the rollout. The same sequence with `serving.streamPollMs=1000` restores the
+default. Poll/cache settings affect serving; amount/risk thresholds affect both producer and
+processor; window settings and merchant data affect processor. Keep producer/UI merchant reference
+lists aligned if merchant IDs or risk values change, rebuilding the affected images as needed.
+Apply rule or reference-data changes together with a new prefix/group using the ordered replay
+procedure below, rather than changing the meaning of facts within an existing prefix.
+
+MinIO root-credential rotation is outside this ConfigMap procedure: the running MinIO servers
+and the post-upgrade bucket Job must agree on credentials. Simply changing the Secret and waiting
+for Helm before restarting consumers does not coordinate that transition.
+
+### Migration and replay — maintenance procedure
+
+The default prefix `v2` and group `fraud-processor-v2` leave earlier tables intact. A new generation
+can rebuild only events still retained in Kafka; expired events cannot be recovered from its log.
+Keep the six topic partitions unchanged. Resetting offsets alone does not rebuild records that
+already exist in the selected prefix.
+
+Finish any simulation and pause event submission while rebuilding. Do not use the dashboard to
+assess results until the procedure finishes. The shared ConfigMap changes immediately, so a
+serving replica recreated by HPA or a restart can pick up the new prefix before replay completes.
+This is a maintenance procedure, not a seamless cutover between two serving generations.
+
+Choose a new prefix and group, update the existing release, and restart processor:
+
+The example below rebuilds with the current image and rules. For semantic changes, prepare/load
+the new images first, then include their `images.*` tags and rule values in the **same** Helm upgrade
+as the new prefix and group. If producer rules also change, roll out producer with those values
+before resuming input. An image-tag change already triggers a rollout; the explicit processor
+restart shown here is required for the configuration-only example. Wait for every affected
+Deployment's rollout to finish before resuming use.
+
+```powershell
+$replayPrefix = 'v2-replay-' + (Get-Date -Format 'yyyyMMddHHmmss')
+$replayGroup = 'fraud-processor-' + $replayPrefix
+helm upgrade fraud-pipeline deploy/helm/fraud-pipeline --kube-context minikube --namespace fraud-lab --reuse-values --set-string "storage.prefix=$replayPrefix" --set-string "keda.processor.consumerGroup=$replayGroup"
+kubectl --context minikube -n fraud-lab rollout restart deployment/processor
+kubectl --context minikube -n fraud-lab rollout status deployment/processor --timeout=600s
+kubectl --context minikube -n fraud-lab exec kafka-0 -- rpk group describe $replayGroup -X brokers=kafka:9092
+```
+
+Repeat the final command until the new group has consumed the retained input: inspect all six
+partitions and confirm no outstanding lag for partitions containing records. Empty partitions may
+have no committed offset. Pod readiness alone does not establish that replay is complete. Check
+processor logs for successful writes and errors, then restart serving to make all its replicas
+read the new prefix:
+
+```powershell
+kubectl --context minikube -n fraud-lab logs deployment/processor -c processor --tail=20
+kubectl --context minikube -n fraud-lab rollout restart deployment/serving
+kubectl --context minikube -n fraud-lab rollout status deployment/serving --timeout=600s
+```
+
+Reload the UI, inspect summary/alerts, and submit a new payment to verify continued processing.
+Retain the old tables; do not delete them to trigger replay. If Kafka retention has removed older
+events, the rebuilt total may be lower than the old generation. This procedure is documented for
+verification; a live replay experiment has not yet been captured for submission.
 
 ### Fresh scale demonstration
 
-```bash
-helm upgrade --install fraud-pipeline deploy/helm/fraud-pipeline --namespace fraud-scale --create-namespace -f deploy/helm/fraud-pipeline/values-scale.yaml
-kubectl -n fraud-scale wait --for=condition=ready pod --all --timeout=600s
-kubectl -n fraud-scale get pods -o wide
-kubectl -n fraud-scale get hpa,statefulset,deployment,pvc
-kubectl -n fraud-scale port-forward svc/ui 8080:8080
+Use a machine with approximately 8 CPUs and 12 GB RAM available to Minikube (a planning allowance,
+not a measured minimum). The scale workload requests alone total 5632 MiB, before Kubernetes
+overhead; the 3000 MB local profile cannot host it. Create a separate Minikube profile and fresh
+namespace/PVCs. Do not convert the existing standalone MinIO deployment to distributed mode in place.
+
+Run the four `docker build` commands from the local quick start on this machine, then:
+
+```powershell
+minikube -p fraud-scale-demo start --driver=docker --cpus=8 --memory=12288
+minikube -p fraud-scale-demo addons enable metrics-server
+minikube -p fraud-scale-demo image load local/fraud-producer:dev
+minikube -p fraud-scale-demo image load local/fraud-processor:dev
+minikube -p fraud-scale-demo image load local/fraud-serving:dev
+minikube -p fraud-scale-demo image load local/fraud-ui:dev
+helm upgrade --install fraud-pipeline deploy/helm/fraud-pipeline --kube-context fraud-scale-demo --namespace fraud-scale --create-namespace -f deploy/helm/fraud-pipeline/values-scale.yaml
+kubectl --context fraud-scale-demo -n fraud-scale wait --for=condition=ready pod --all --timeout=600s
+kubectl --context fraud-scale-demo -n fraud-scale get pods -o wide
+kubectl --context fraud-scale-demo -n fraud-scale get hpa,statefulset,deployment,pvc
+kubectl --context fraud-scale-demo -n fraud-scale port-forward svc/ui 8081:8080
 ```
 
-Open `http://localhost:8080`. For a smaller fresh lab, omit `-f .../values-scale.yaml` and use
-another namespace such as `fraud-lab`; this single-node mode is not evidence of full scale-out.
-Do not use `--wait` as a substitute for the documented post-install readiness check: bucket creation
-is a Helm post-install Job. If startup fails, inspect `kubectl describe pod` and container logs.
+Open `http://localhost:8081` for the scale deployment. Its explicit context selects the separate
+cluster; the namespace alone does not do that. For k3d, use `k3d image import`; for a remote cluster,
+push images to its registry and override `images.*`. Each target cluster needs a default StorageClass.
 
 To enable lag-based processor scaling, install the KEDA operator first, then pass
-`--set keda.enabled=true` in addition to the same values file. HPA-managed Deployments omit static
-replicas so Helm does not overwrite an autoscaler's decision.
+`--set keda.enabled=true --set keda.processor.minReplicaCount=2` in addition to the same scale values
+file. Without that override, KEDA's minimum is 1; `processor.replicas=2` applies only when KEDA is
+disabled. Autoscaler-managed Deployments omit static replicas so Helm does not overwrite an
+autoscaler's decision.
 
-For storage expansion of the distributed demo, keep all existing settings and pass
-`--set minio.poolCount=2`; this adds four servers and four PVCs. After the update, restart MinIO pods
-in a coordinated maintenance window (`kubectl -n fraud-scale delete pod -l app=minio`), retaining
-the StatefulSet and PVCs. Wait for all eight pods, check `mc admin info`, then verify historical data
-and a new payment. This procedure is supplied for verification and has not been executed here.
-
-### Migration and replay
-
-The new default prefix `v2` and group `fraud-processor-v2` leave old tables intact. Existing retained
-Kafka events are replayed into the new schema. If those events have expired, old v1 data stays in
-its original paths but is not shown by the v2 serving layer. For another rebuild, set both
-`storage.prefix` and `keda.processor.consumerGroup` to new generation names. Keep six topic
-partitions unchanged. Resetting offsets alone does not rebuild already persisted v2 records.
+For pool expansion of an already distributed demo, use `helm upgrade` with the same release,
+chart, context and namespace, adding `--reuse-values --set minio.poolCount=2`. This adds four
+servers and four PVCs. In a coordinated maintenance window after the update, restart MinIO pods
+with `kubectl --context fraud-scale-demo -n fraud-scale delete pod -l app=minio`, retaining the
+StatefulSet and PVCs. Wait for all eight pods, check `mc admin info`, then verify historical data
+and a new payment. Distributed deployment and pool expansion have not been executed in this review.
 
 ### Tests and packaging
 
@@ -293,33 +471,59 @@ are supplementary, not required evidence. `git archive` excludes `.git` and unco
 
 ### Current verification status
 
-The v2 revision has passed 19 Python tests, including a real local Delta write/read/restart/replay
-test, plus five Helm topology/configuration checks. CI also defines container builds. A Docker
-build and live Kubernetes deployment were not executed in the correction environment.
-These checks do **not** replace the runtime screenshots required for submission.
+All 22 Python tests passed on 2026-09-10: producer 9, processor 10 and serving 3, including
+a real local Delta write/read/restart/replay test. Five Helm topology/configuration checks were
+reported in the earlier verification; they were not rerun in this local review. CI defines
+container builds, but a successful full CI run was not checked here. The corrected producer
+image was built and deployed locally, and the running `fraud-lab` pipeline was checked through
+its API and logs. Updated UI, API and pod screenshots below document this local deployment;
+distributed scaling and live restart/replay experiments remain to be demonstrated.
 
-The earlier dashboard and API agree on 5,581 processed and 894 flagged events; they demonstrate
-the previous UI/pipeline run, not verification of v2 recovery or distributed storage:
+The updated dashboard shows 220 processed payments and 31 flagged payments; the UI rounds
+the flagged share to 14%. The serving API check returned the same counts and `fraud_rate=0.1409`.
+Five velocity alert rows show successive same-card window counts from 11 through 15.
+This screenshot displays previously processed data; it does not establish a new simulation run.
 
-![Historical dashboard](docs/screenshots/ui-dashboard.png)
-![Historical serving output](docs/screenshots/serving-api.png)
-![Historical data-provider UI; no acceptance response visible](docs/screenshots/ui-producer.png)
-![Historical processor flush logs](docs/screenshots/pipeline-output.png)
+![v2 dashboard with fraud-rule results and velocity alerts](docs/screenshots/ui-dashboard.png)
 
-The old cluster screenshot contains producer/processor `Error` and serving/UI readiness `0/1`.
-It is retained transparently and must be replaced with a real successful v2 run before submission:
+The updated serving screenshot shows the summary response, matching the dashboard counts:
 
-![Historical cluster snapshot showing failures](docs/screenshots/pods.png)
+![Serving summary: 220 processed, 31 flagged, fraud rate 0.1409](docs/screenshots/serving-api.png)
 
-The old HPA screenshot shows one replica for each service and no scale-out:
+The updated processor screenshot shows a processed event from 2026-09-10, read from the
+current v2 logs. Kafka partition 1, offset 41 identifies the event. Merchant enrichment assigns
+category `luxury`; the EUR 3,971.06 payment has `is_fraud=1`. Its same-card window count is 1
+and `velocity_alert=0`, so this example demonstrates a flagged payment without a velocity alert.
 
-![Historical HPA configuration, not scale-out proof](docs/screenshots/scaling.png)
+![v2 processed event with Kafka coordinates, merchant enrichment and rule results](docs/screenshots/pipeline-output.png)
+
+The updated data-provider screenshot shows a successful producer acknowledgement:
+`Accepted` followed by a transaction ID. The form displays EUR 400 at merchant M0002,
+which does not trigger the amount or merchant-risk rule.
+
+![UI payment submission with a visible acceptance response](docs/screenshots/ui-producer.png)
+
+The local v2 deployment in `fraud-lab` was captured on 2026-09-11. All nine pods are
+`Running` and ready (`1/1`), with zero restarts. Serving has four replicas; Kafka, MinIO,
+processor, producer and UI each have one. This demonstrates local deployment readiness;
+the distributed Kafka/MinIO and multi-processor scale profile still requires verification.
+
+![Local v2 deployment: all nine pods ready](docs/screenshots/pods.png)
+
+The later Deployment/HPA snapshot shows two ready serving replicas and one each for producer,
+processor and UI. The HPA targets are 70% CPU utilization, with replica ranges of 1–5 for
+producer/serving and 1–3 for UI. This snapshot was taken after the pod screenshot above, which
+shows four serving replicas. These observations document different replica counts over time;
+they do not demonstrate replica growth under a controlled load or scaling of all components.
+
+![Local Deployments and HPA: two serving replicas and configured CPU targets](docs/screenshots/scaling.png)
 
 ### Evidence still to capture
 
-Use the fresh scale deployment, wait for readiness, then capture all ready pods, three brokers,
-four MinIO nodes, multiple processor/stateless replicas, successful UI submission and its resulting
-transaction/alert. Show replica growth under load if claiming automatic scaling, and compare
+The local UI, API, processing, pod and HPA screenshots have been updated. For the distributed
+demonstration, use the fresh scale deployment, wait for readiness, then capture all ready pods,
+three brokers, four MinIO nodes, multiple processor/stateless replicas and a successful payment
+through that deployment. Show replica growth under load if claiming automatic scaling, and compare
 counts before/after a processor restart. Include a late-event example and actual Delta output.
 
 From PowerShell, `./scripts/capture-evidence.ps1 -Namespace fraud-scale` collects real cluster,

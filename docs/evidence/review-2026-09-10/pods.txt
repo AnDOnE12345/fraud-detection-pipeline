@@ -1,0 +1,8 @@
+﻿NAME                         READY   STATUS    RESTARTS   AGE     IP            NODE       NOMINATED NODE   READINESS GATES
+kafka-0                      1/1     Running   0          4h      10.244.0.6    minikube   <none>           <none>
+minio-0                      1/1     Running   0          4h      10.244.0.10   minikube   <none>           <none>
+processor-556f967998-4rdvv   1/1     Running   0          4h      10.244.0.7    minikube   <none>           <none>
+producer-7c6bb88bc5-dn6tv    1/1     Running   0          3h47m   10.244.0.17   minikube   <none>           <none>
+serving-69f79f9755-fkhrw     1/1     Running   0          3h52m   10.244.0.11   minikube   <none>           <none>
+serving-69f79f9755-nvb9b     1/1     Running   0          3h52m   10.244.0.14   minikube   <none>           <none>
+ui-85999d4655-wbrb8          1/1     Running   0          4h      10.244.0.9    minikube   <none>           <none>

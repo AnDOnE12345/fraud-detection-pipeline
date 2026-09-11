@@ -1,0 +1,15 @@
+﻿CLUSTER
+=======
+redpanda.9df8e65a-4946-47c9-9f9e-58ae05f12409
+
+BROKERS
+=======
+ID    HOST                    PORT
+0*    kafka-0.kafka-headless  9092
+
+TOPICS
+======
+NAME                PARTITIONS  REPLICAS
+__consumer_offsets  3           1
+transactions        6           1
+

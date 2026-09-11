@@ -138,8 +138,11 @@ def rules():
 @app.get("/readyz")
 def readyz():
     try:
-        if not get_producer().bootstrap_connected():
-            raise HTTPException(status_code=503, detail="Kafka disconnected")
+        # Bootstrap connections may close after discovery while broker
+        # connections remain usable. Readiness requires topic metadata;
+        # each publish separately checks the broker acknowledgement.
+        if not get_producer().partitions_for(KAFKA_TOPIC):
+            raise HTTPException(status_code=503, detail="Kafka topic unavailable")
     except KafkaError as exc:
         raise HTTPException(status_code=503, detail="Kafka unavailable") from exc
     return {"status": "ready"}
