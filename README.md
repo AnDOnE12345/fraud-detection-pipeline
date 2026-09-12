@@ -4,9 +4,8 @@ Course: Cloud Computing und Big Data - Pruefungsleistung 2026
 
 This prototype implements a Kappa payment-event pipeline with a separately deployed web UI.
 The current v2 implementation fixes recovery and cross-processor aggregation. Python tests and
-the local Kubernetes deployment have been checked; section 11 includes updated UI, API, pod,
-processing-output and HPA screenshots. The distributed scale profile still requires a live
-demonstration.
+the local Kubernetes deployment have been checked; section 11 includes current UI, API, pod,
+processing-output, distributed-scaling, restart-recovery and late-data evidence.
 
 ## 1. Use Case und Motivation
 
@@ -472,11 +471,11 @@ are supplementary, not required evidence. `git archive` excludes `.git` and unco
 
 ### Current verification status
 
-All 22 Python tests passed on 2026-09-10: producer 9, processor 10 and serving 3, including
+All 22 Python tests passed on 2026-09-12: producer 9, processor 10 and serving 3, including
 a real local Delta write/read/restart/replay test. All five Helm topology/configuration checks were
-rerun successfully on 2026-09-12 before deployment. The current-head GitHub Actions run also passed
-the three Python test jobs, Helm rendering and all four container builds. The baseline `fraud-lab`
-evidence below is retained, followed by the fresh distributed scaling run.
+also rerun successfully before deployment. The current evidence update was verified locally; CI
+status is not used as runtime proof here. The baseline `fraud-lab` evidence below is retained,
+followed by the fresh distributed scaling run.
 
 ### Fresh distributed scaling run — 2026-09-12
 
@@ -546,14 +545,40 @@ they do not demonstrate replica growth under a controlled load or scaling of all
 
 ![Local Deployments and HPA: two serving replicas and configured CPU targets](docs/screenshots/scaling.png)
 
+### Live processor recovery and late data - 2026-09-12
+
+One of the two processors, `processor-7cdbb6d877-glfwl` (UID ending `e968`), was deliberately
+deleted after a control payment had raised the serving total from 216 to 217. Kubernetes replaced
+it with `processor-7cdbb6d877-4mgxt` (different UID ending `0e3f`). Both processors returned
+Ready, the Kafka group was `Stable`, all six partitions were assigned and total lag was zero.
+
+The pre-restart control row remained queryable. A second payment was then written by the replacement
+processor at partition 0, offset 38, raising the total to 218. Before replacement, Delta contained
+217 physical rows and 217 distinct Kafka coordinates; afterwards it contained 218 and 218.
+Both audits reported zero duplicate coordinates. See the structured
+[recovery result](docs/evidence/recovery-2026-09-12/recovery.json) and concise
+[pod/group/processor output](docs/evidence/recovery-2026-09-12/runtime.txt).
+
+Late-data behavior was exercised with three records for the same card and partition:
+
+| Input relative to partition watermark | `is_late` | `velocity_excluded` | Window result |
+| --- | ---: | ---: | --- |
+| Anchor at 18:30:46 UTC | 0 | 0 | Included, count 1 |
+| 60 seconds before anchor | 1 | 0 | Accepted within the 120-second allowance, count 1 |
+| 180 seconds before anchor | 1 | 1 | Preserved in Silver but excluded, count 0 |
+
+The three records occupy consecutive Kafka offsets 39-41. After the experiment, serving reported
+221 processed rows, while the physical/coordinate audit reported 221/221 and zero duplicates.
+The exact transaction IDs, timestamps, offsets and flags are in the
+[late-data result](docs/evidence/recovery-2026-09-12/late-data.json).
+
 ### Remaining optional evidence
 
 The required distributed topology and end-to-end flow are now captured. Additional evidence can
-strengthen bonus/robustness claims: measured HPA or KEDA replica growth under controlled load,
-before/after counts around a live processor restart, and an explicit late-event row. From
+strengthen the bonus claim: measured HPA or KEDA replica growth under controlled load. From
 PowerShell, `./scripts/capture-evidence.ps1 -Namespace fraud-scale -OutputDirectory <directory>`
-collects real cluster, broker, partition, processor and API outputs; screenshots must likewise come
-from the running deployment.
+collects real cluster, broker, partition, processor and API outputs; screenshots must likewise
+come from the running deployment.
 
 ## 12. Grenzen des Prototyps und Ausblick
 
@@ -567,9 +592,9 @@ Normal restart/rebalance is covered by durable recovery, but arbitrary overlappi
 under network partitions require fencing for stronger guarantees. No global atomic snapshot across
 all Kafka partitions is claimed. Generation jobs run inside producer pods and do not survive pod
 termination. Default credentials, plaintext traffic and permissive CORS are lab-only choices.
-The scale topology still needs live verification and replacement evidence before it can be called
-demonstrated. Further improvements include authenticated APIs, schema contracts, load measurements
-and end-to-end failure testing.
+The distributed topology, normal processor replacement and bounded late-data behavior have been
+verified live. Further improvements include authenticated APIs, schema contracts, measured
+autoscaler response and broader failure-injection testing.
 
 ### Eigenanteil
 

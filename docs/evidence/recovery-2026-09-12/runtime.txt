@@ -1,0 +1,30 @@
+Captured UTC: 2026-09-12T18:31:37.2788240Z
+Context: kind-fraud-scale
+Namespace: fraud-scale
+
+PROCESSOR PODS AFTER REPLACEMENT
+NAME                         UID                                    READY   RESTARTS   START
+processor-7cdbb6d877-4mgxt   520f261c-2eb2-466d-9399-1e70f2ea0e3f   true    0          2026-09-12T18:28:55Z
+processor-7cdbb6d877-shp25   960fe816-aab6-494e-98a0-d484e90b8155   true    0          2026-09-12T17:37:24Z
+
+CONSUMER GROUP AFTER REPLACEMENT
+GROUP        fraud-processor-v2
+STATE        Stable
+MEMBERS      2
+TOTAL-LAG    0
+
+TOPIC         PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
+transactions  0          42              42              0
+transactions  1          25              25              0
+transactions  2          55              55              0
+transactions  3          32              32              0
+transactions  4          34              34              0
+transactions  5          33              33              0
+
+REPLACEMENT PROCESSOR OUTPUT
+2026-09-12T18:29:51.875270077Z
+written=1 last_offset=38 transaction_id=4fce4561-5995-4656-a396-b6b60a671f69
+card_id=restart_after_20260912 source_partition=0 source_offset=38
+
+FINAL COORDINATE AUDIT
+raw_rows=221 distinct_coordinates=221 duplicate_coordinates=0

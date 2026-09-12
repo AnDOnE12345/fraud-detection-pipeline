@@ -1,0 +1,54 @@
+{
+  "captured_at_utc": "2026-09-12T18:31:37.2788240Z",
+  "namespace": "fraud-scale",
+  "context": "kind-fraud-scale",
+  "deleted_processor": {
+    "name": "processor-7cdbb6d877-glfwl",
+    "uid": "066594a2-87cb-4711-a3f9-07d64940e968"
+  },
+  "replacement_processor": {
+    "name": "processor-7cdbb6d877-4mgxt",
+    "uid": "520f261c-2eb2-466d-9399-1e70f2ea0e3f",
+    "ready": true,
+    "restart_count": 0
+  },
+  "unchanged_processor": {
+    "name": "processor-7cdbb6d877-shp25",
+    "uid": "960fe816-aab6-494e-98a0-d484e90b8155",
+    "ready": true
+  },
+  "before_control_submission": {
+    "processed": 216,
+    "flagged": 31
+  },
+  "pre_restart_control": {
+    "transaction_id": "0074481d-2413-48d2-a428-0bc253415d5a",
+    "card_id": "restart_before_20260912",
+    "processed_after": 217,
+    "persisted_after_restart": true
+  },
+  "post_restart_control": {
+    "transaction_id": "4fce4561-5995-4656-a396-b6b60a671f69",
+    "card_id": "restart_after_20260912",
+    "source_partition": 0,
+    "source_offset": 38,
+    "processed_after": 218,
+    "persisted": true
+  },
+  "coordinate_audit_before_restart": {
+    "raw_rows": 217,
+    "distinct_coordinates": 217,
+    "duplicate_coordinates": 0
+  },
+  "coordinate_audit_after_restart": {
+    "raw_rows": 218,
+    "distinct_coordinates": 218,
+    "duplicate_coordinates": 0
+  },
+  "consumer_group_after_restart": {
+    "state": "Stable",
+    "members": 2,
+    "assigned_partitions": 6,
+    "total_lag": 0
+  }
+}

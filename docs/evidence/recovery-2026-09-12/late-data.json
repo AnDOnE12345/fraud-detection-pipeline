@@ -1,0 +1,51 @@
+{
+  "captured_at_utc": "2026-09-12T18:31:37.2788240Z",
+  "namespace": "fraud-scale",
+  "card_id": "late_demo_20260912",
+  "allowed_lateness_seconds": 120,
+  "rows": [
+    {
+      "label": "anchor",
+      "transaction_id": "c2f27aed-a5fb-4caf-9482-6a01a2e0cdac",
+      "event_time": "2026-09-12T18:30:46.234681+00:00",
+      "source_partition": 0,
+      "source_offset": 39,
+      "is_late": 0,
+      "velocity_excluded": 0,
+      "tx_count": 1,
+      "amount_sum": 101.01
+    },
+    {
+      "label": "accepted_late_60s",
+      "transaction_id": "680aebe2-d3b5-4ed7-80b6-4b4cae6821cf",
+      "event_time": "2026-09-12T18:29:46.234681+00:00",
+      "source_partition": 0,
+      "source_offset": 40,
+      "is_late": 1,
+      "velocity_excluded": 0,
+      "tx_count": 1,
+      "amount_sum": 102.02
+    },
+    {
+      "label": "excluded_late_180s",
+      "transaction_id": "3fd5d0d6-447e-44e9-b582-12829f661282",
+      "event_time": "2026-09-12T18:27:46.234681+00:00",
+      "source_partition": 0,
+      "source_offset": 41,
+      "is_late": 1,
+      "velocity_excluded": 1,
+      "tx_count": 0,
+      "amount_sum": 0.0
+    }
+  ],
+  "summary_after": {
+    "processed": 221,
+    "flagged": 32,
+    "fraud_rate": 0.1448
+  },
+  "coordinate_audit_after": {
+    "raw_rows": 221,
+    "distinct_coordinates": 221,
+    "duplicate_coordinates": 0
+  }
+}
