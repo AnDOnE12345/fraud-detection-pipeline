@@ -38,8 +38,8 @@ minio:
   distributed: false
   serversPerPool: 4
   poolCount: 1
-  image: "minio/minio:RELEASE.2025-02-07T23-21-09Z"
-  mcImage: "minio/mc:RELEASE.2025-02-08T19-14-21Z"
+  image: "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"
+  mcImage: "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z"
   endpoint: "http://minio:9000"
   bucket: "fraud"
   storage: "10Gi"

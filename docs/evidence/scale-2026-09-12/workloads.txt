@@ -1,0 +1,23 @@
+﻿NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/processor   2/2     2            2           5m43s
+deployment.apps/producer    2/2     2            2           5m43s
+deployment.apps/serving     2/2     2            2           5m43s
+deployment.apps/ui          2/2     2            2           5m43s
+
+NAME                     READY   AGE
+statefulset.apps/kafka   3/3     5m43s
+statefulset.apps/minio   4/4     5m43s
+
+NAME                                               REFERENCE             TARGETS              MINPODS   MAXPODS   REPLICAS   AGE
+horizontalpodautoscaler.autoscaling/producer-hpa   Deployment/producer   cpu: <unknown>/70%   2         5         2          5m43s
+horizontalpodautoscaler.autoscaling/serving-hpa    Deployment/serving    cpu: <unknown>/70%   2         5         2          5m43s
+horizontalpodautoscaler.autoscaling/ui-hpa         Deployment/ui         cpu: <unknown>/70%   2         3         2          5m43s
+
+NAME                                 STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/data-kafka-0   Bound    pvc-f0d45491-3f94-414d-b482-4e3b37423742   5Gi        RWO            standard       <unset>                 5m43s
+persistentvolumeclaim/data-kafka-1   Bound    pvc-5a4beb27-1cad-48d1-b358-645df960c904   5Gi        RWO            standard       <unset>                 5m43s
+persistentvolumeclaim/data-kafka-2   Bound    pvc-f2277385-7d1b-4b88-963f-056e6e7e9e62   5Gi        RWO            standard       <unset>                 5m43s
+persistentvolumeclaim/data-minio-0   Bound    pvc-17540db1-3834-4806-9e75-ba3dac01234e   10Gi       RWO            standard       <unset>                 5m43s
+persistentvolumeclaim/data-minio-1   Bound    pvc-99e7f7f3-fd37-4350-84e0-56509ed67426   10Gi       RWO            standard       <unset>                 5m43s
+persistentvolumeclaim/data-minio-2   Bound    pvc-e4eba986-077e-47dd-96a3-897c8f5e8a27   10Gi       RWO            standard       <unset>                 5m43s
+persistentvolumeclaim/data-minio-3   Bound    pvc-c2ca0663-69c0-4806-b27e-ad281a6d9eb4   10Gi       RWO            standard       <unset>                 5m43s

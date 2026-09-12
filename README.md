@@ -191,9 +191,12 @@ endpoint list. An expansion requires a coordinated pod restart after the Helm up
 the size of an existing pool. Persistent PVCs must be retained. A standalone installation must not
 be converted to distributed mode in place; use the fresh-namespace instructions below.
 
-The scale topology has been rendered and structurally checked. **Runtime scaling has not yet been
-demonstrated for v2.** Section 11 states the missing evidence rather than claiming that HPA presence
-or configured replicas proves a successful deployment.
+The scale topology was deployed and exercised end to end on 2026-09-12. Three Redpanda brokers,
+four distributed MinIO servers, two processors and two replicas of every stateless service were
+Ready simultaneously. The run processed 216 new events through the producer, Kafka, both processor
+replicas, Delta/MinIO and the serving/UI layer. Section 11 contains the captured runtime evidence.
+This proves the configured horizontal topology; it does not claim an HPA growth experiment under
+controlled CPU load.
 
 ## 9. Deployment-Anleitung
 
@@ -389,30 +392,27 @@ verification; a live replay experiment has not yet been captured for submission.
 
 ### Fresh scale demonstration
 
-Use a machine with approximately 8 CPUs and 12 GB RAM available to Minikube (a planning allowance,
-not a measured minimum). The scale workload requests alone total 5632 MiB, before Kubernetes
-overhead; the 3000 MB local profile cannot host it. Create a separate Minikube profile and fresh
-namespace/PVCs. Do not convert the existing standalone MinIO deployment to distributed mode in place.
+The verified run used a one-node `kind` cluster with 8 CPUs and 7,989,356 KiB allocatable memory.
+The deployed workloads requested 5,922 MiB (75% of allocatable memory), and the node reported
+`MemoryPressure=False`. Create a separate cluster and fresh namespace/PVCs. Do not convert the
+existing standalone MinIO deployment to distributed mode in place.
 
 Run the four `docker build` commands from the local quick start on this machine, then:
 
 ```powershell
-minikube -p fraud-scale-demo start --driver=docker --cpus=8 --memory=12288
-minikube -p fraud-scale-demo addons enable metrics-server
-minikube -p fraud-scale-demo image load local/fraud-producer:dev
-minikube -p fraud-scale-demo image load local/fraud-processor:dev
-minikube -p fraud-scale-demo image load local/fraud-serving:dev
-minikube -p fraud-scale-demo image load local/fraud-ui:dev
-helm upgrade --install fraud-pipeline deploy/helm/fraud-pipeline --kube-context fraud-scale-demo --namespace fraud-scale --create-namespace -f deploy/helm/fraud-pipeline/values-scale.yaml
-kubectl --context fraud-scale-demo -n fraud-scale wait --for=condition=ready pod --all --timeout=600s
-kubectl --context fraud-scale-demo -n fraud-scale get pods -o wide
-kubectl --context fraud-scale-demo -n fraud-scale get hpa,statefulset,deployment,pvc
-kubectl --context fraud-scale-demo -n fraud-scale port-forward svc/ui 8081:8080
+kind create cluster --name fraud-scale --wait 5m
+kind load docker-image local/fraud-producer:dev local/fraud-processor:dev local/fraud-serving:dev local/fraud-ui:dev --name fraud-scale
+helm upgrade --install fraud-pipeline deploy/helm/fraud-pipeline --kube-context kind-fraud-scale --namespace fraud-scale --create-namespace -f deploy/helm/fraud-pipeline/values-scale.yaml --wait --timeout 10m
+kubectl --context kind-fraud-scale -n fraud-scale get pods -o wide
+kubectl --context kind-fraud-scale -n fraud-scale get hpa,statefulset,deployment,pvc
+kubectl --context kind-fraud-scale -n fraud-scale port-forward svc/ui 8081:8080
 ```
 
 Open `http://localhost:8081` for the scale deployment. Its explicit context selects the separate
-cluster; the namespace alone does not do that. For k3d, use `k3d image import`; for a remote cluster,
-push images to its registry and override `images.*`. Each target cluster needs a default StorageClass.
+cluster; the namespace alone does not do that. For Minikube, use `minikube image load`; for k3d, use
+`k3d image import`; for a remote cluster, push images to its registry and override `images.*`. Each
+target cluster needs a default StorageClass. Install metrics-server before claiming measured HPA
+growth; the verified `kind` run demonstrates the HPA minimum replicas but not CPU-driven growth.
 
 To enable lag-based processor scaling, install the KEDA operator first, then pass
 `--set keda.enabled=true --set keda.processor.minReplicaCount=2` in addition to the same scale values
@@ -423,9 +423,10 @@ autoscaler's decision.
 For pool expansion of an already distributed demo, use `helm upgrade` with the same release,
 chart, context and namespace, adding `--reuse-values --set minio.poolCount=2`. This adds four
 servers and four PVCs. In a coordinated maintenance window after the update, restart MinIO pods
-with `kubectl --context fraud-scale-demo -n fraud-scale delete pod -l app=minio`, retaining the
+with `kubectl --context kind-fraud-scale -n fraud-scale delete pod -l app=minio`, retaining the
 StatefulSet and PVCs. Wait for all eight pods, check `mc admin info`, then verify historical data
-and a new payment. Distributed deployment and pool expansion have not been executed in this review.
+and a new payment. The four-node distributed deployment was executed; pool expansion to eight
+servers remains a documented maintenance procedure and was not executed.
 
 ### Tests and packaging
 
@@ -472,12 +473,39 @@ are supplementary, not required evidence. `git archive` excludes `.git` and unco
 ### Current verification status
 
 All 22 Python tests passed on 2026-09-10: producer 9, processor 10 and serving 3, including
-a real local Delta write/read/restart/replay test. Five Helm topology/configuration checks were
-reported in the earlier verification; they were not rerun in this local review. CI defines
-container builds, but a successful full CI run was not checked here. The corrected producer
-image was built and deployed locally, and the running `fraud-lab` pipeline was checked through
-its API and logs. Updated UI, API and pod screenshots below document this local deployment;
-distributed scaling and live restart/replay experiments remain to be demonstrated.
+a real local Delta write/read/restart/replay test. All five Helm topology/configuration checks were
+rerun successfully on 2026-09-12 before deployment. The current-head GitHub Actions run also passed
+the three Python test jobs, Helm rendering and all four container builds. The baseline `fraud-lab`
+evidence below is retained, followed by the fresh distributed scaling run.
+
+### Fresh distributed scaling run — 2026-09-12
+
+The `fraud-scale` namespace ran 15 Ready application/storage pods with zero restarts: three
+Redpanda brokers, four MinIO servers, two processors and two producer, serving and UI replicas.
+The broker evidence reports all three broker IDs and the six-partition `transactions` topic with
+replication factor three. Both processor pod prefixes appear in the captured processing log and
+cover source partitions 0–5.
+
+![Scaled Kubernetes deployment: 15 pods Ready with zero restarts](docs/screenshots/scaling-pods-2026-09-12.png)
+
+The pod screenshot above proves the replica topology. The dashboard screenshot below is the
+companion end-to-end check from the same fresh deployment: it shows the 216 processed events,
+31 flagged events and five velocity alerts produced while that topology was running. The UI image
+alone is not used as proof of scaling.
+
+![Scaled deployment dashboard: 216 processed, 31 flagged and velocity alerts](docs/screenshots/scaling-ui-2026-09-12.png)
+
+Raw, offline-verifiable outputs: [pods](docs/evidence/scale-2026-09-12/pods.txt),
+[workloads/HPA/PVCs](docs/evidence/scale-2026-09-12/workloads.txt),
+[brokers](docs/evidence/scale-2026-09-12/brokers.txt),
+[topic partitions](docs/evidence/scale-2026-09-12/partitions.txt) and
+[both processor logs](docs/evidence/scale-2026-09-12/processor.txt).
+
+From an empty lake, the scaled run accepted one manual high-amount transaction and scheduled 215
+simulation events. Serving then reported 216 processed, 31 flagged and `fraud_rate=0.1435`.
+Velocity evidence contains the same burst card at window counts 11–15, with
+`velocity_alert=1`. See the captured [serving API snapshot](docs/evidence/scale-2026-09-12/api.json)
+and [manual transaction](docs/evidence/scale-2026-09-12/manual-transaction.json).
 
 The updated dashboard shows 220 processed payments and 31 flagged payments; the UI rounds
 the flagged share to 14%. The serving API check returned the same counts and `fraud_rate=0.1409`.
@@ -503,10 +531,10 @@ which does not trigger the amount or merchant-risk rule.
 
 ![UI payment submission with a visible acceptance response](docs/screenshots/ui-producer.png)
 
-The local v2 deployment in `fraud-lab` was captured on 2026-09-11. All nine pods are
+The baseline v2 deployment in `fraud-lab` was captured on 2026-09-11. All nine pods are
 `Running` and ready (`1/1`), with zero restarts. Serving has four replicas; Kafka, MinIO,
-processor, producer and UI each have one. This demonstrates local deployment readiness;
-the distributed Kafka/MinIO and multi-processor scale profile still requires verification.
+processor, producer and UI each have one. This older screenshot demonstrates baseline readiness;
+the fresh scale evidence above supersedes it for distributed topology verification.
 
 ![Local v2 deployment: all nine pods ready](docs/screenshots/pods.png)
 
@@ -518,17 +546,14 @@ they do not demonstrate replica growth under a controlled load or scaling of all
 
 ![Local Deployments and HPA: two serving replicas and configured CPU targets](docs/screenshots/scaling.png)
 
-### Evidence still to capture
+### Remaining optional evidence
 
-The local UI, API, processing, pod and HPA screenshots have been updated. For the distributed
-demonstration, use the fresh scale deployment, wait for readiness, then capture all ready pods,
-three brokers, four MinIO nodes, multiple processor/stateless replicas and a successful payment
-through that deployment. Show replica growth under load if claiming automatic scaling, and compare
-counts before/after a processor restart. Include a late-event example and actual Delta output.
-
-From PowerShell, `./scripts/capture-evidence.ps1 -Namespace fraud-scale` collects real cluster,
-broker, partition, processor and API outputs into `docs/evidence`. Add UI/terminal screenshots and
-embed those files here; do not rely on external URLs or fabricated successful output.
+The required distributed topology and end-to-end flow are now captured. Additional evidence can
+strengthen bonus/robustness claims: measured HPA or KEDA replica growth under controlled load,
+before/after counts around a live processor restart, and an explicit late-event row. From
+PowerShell, `./scripts/capture-evidence.ps1 -Namespace fraud-scale -OutputDirectory <directory>`
+collects real cluster, broker, partition, processor and API outputs; screenshots must likewise come
+from the running deployment.
 
 ## 12. Grenzen des Prototyps und Ausblick
 

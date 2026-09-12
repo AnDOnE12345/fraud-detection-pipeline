@@ -1,0 +1,27 @@
+﻿SUMMARY
+=======
+NAME        transactions
+PARTITIONS  6
+REPLICAS    3
+
+CONFIGS
+=======
+KEY                                   VALUE       SOURCE
+cleanup.policy                        delete      DEFAULT_CONFIG
+compression.type                      producer    DEFAULT_CONFIG
+flush.bytes                           262144      DEFAULT_CONFIG
+flush.ms                              100         DEFAULT_CONFIG
+initial.retention.local.target.bytes  -1          DEFAULT_CONFIG
+initial.retention.local.target.ms     -1          DEFAULT_CONFIG
+max.message.bytes                     1048576     DEFAULT_CONFIG
+message.timestamp.type                CreateTime  DEFAULT_CONFIG
+redpanda.remote.delete                true        DEFAULT_CONFIG
+redpanda.remote.read                  false       DEFAULT_CONFIG
+redpanda.remote.write                 false       DEFAULT_CONFIG
+retention.bytes                       -1          DEFAULT_CONFIG
+retention.local.target.bytes          -1          DEFAULT_CONFIG
+retention.local.target.ms             86400000    DEFAULT_CONFIG
+retention.ms                          604800000   DEFAULT_CONFIG
+segment.bytes                         134217728   DEFAULT_CONFIG
+segment.ms                            1209600000  DEFAULT_CONFIG
+write.caching                         true        DEFAULT_CONFIG

@@ -1,0 +1,15 @@
+﻿{
+    "transaction_id":  "b96da9b4-39d1-409c-9fc0-230f7d833c2c",
+    "event_time":  "2026-09-12T17:40:42.149770+00:00",
+    "card_id":  "scale_card_001",
+    "merchant_id":  "M0002",
+    "merchant_category":  "electronics",
+    "amount":  1299.99,
+    "amount_flag":  1,
+    "merchant_flag":  0,
+    "fraud_score":  0.5812,
+    "is_fraud":  1,
+    "is_late":  0,
+    "event_time_fallback":  0,
+    "velocity_excluded":  0
+}

@@ -1,0 +1,16 @@
+﻿NAME                         READY   STATUS    RESTARTS   AGE     IP            NODE                        NOMINATED NODE   READINESS GATES
+kafka-0                      1/1     Running   0          5m42s   10.244.0.44   fraud-scale-control-plane   <none>           <none>
+kafka-1                      1/1     Running   0          5m42s   10.244.0.47   fraud-scale-control-plane   <none>           <none>
+kafka-2                      1/1     Running   0          5m42s   10.244.0.51   fraud-scale-control-plane   <none>           <none>
+minio-0                      1/1     Running   0          5m42s   10.244.0.45   fraud-scale-control-plane   <none>           <none>
+minio-1                      1/1     Running   0          5m42s   10.244.0.46   fraud-scale-control-plane   <none>           <none>
+minio-2                      1/1     Running   0          5m42s   10.244.0.52   fraud-scale-control-plane   <none>           <none>
+minio-3                      1/1     Running   0          5m42s   10.244.0.54   fraud-scale-control-plane   <none>           <none>
+processor-7cdbb6d877-glfwl   1/1     Running   0          5m42s   10.244.0.39   fraud-scale-control-plane   <none>           <none>
+processor-7cdbb6d877-shp25   1/1     Running   0          5m42s   10.244.0.37   fraud-scale-control-plane   <none>           <none>
+producer-6cb54b6f59-qqgjk    1/1     Running   0          5m27s   10.244.0.53   fraud-scale-control-plane   <none>           <none>
+producer-6cb54b6f59-zgfhd    1/1     Running   0          5m42s   10.244.0.35   fraud-scale-control-plane   <none>           <none>
+serving-6fdc749cc8-j5hb9     1/1     Running   0          5m27s   10.244.0.56   fraud-scale-control-plane   <none>           <none>
+serving-6fdc749cc8-s7tbt     1/1     Running   0          5m42s   10.244.0.38   fraud-scale-control-plane   <none>           <none>
+ui-744d5cfd9b-2bz75          1/1     Running   0          5m27s   10.244.0.55   fraud-scale-control-plane   <none>           <none>
+ui-744d5cfd9b-8jm8d          1/1     Running   0          5m42s   10.244.0.36   fraud-scale-control-plane   <none>           <none>

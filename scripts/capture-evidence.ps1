@@ -5,7 +5,7 @@ New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $checks = @{
     'pods.txt' = @('get', 'pods', '-o', 'wide')
     'workloads.txt' = @('get', 'deployment,statefulset,hpa,pvc')
-    'processor.txt' = @('logs', '-l', 'app=processor', '--tail=20', '--prefix=true')
+    'processor.txt' = @('logs', '-l', 'app=processor', '-c', 'processor', '--tail=20', '--prefix=true')
     'brokers.txt' = @('exec', 'kafka-0', '--', 'rpk', 'cluster', 'info', '-X', 'brokers=kafka:9092')
     'partitions.txt' = @('exec', 'kafka-0', '--', 'rpk', 'topic', 'describe', 'transactions', '-X', 'brokers=kafka:9092')
 }
