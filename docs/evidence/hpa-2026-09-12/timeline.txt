@@ -1,0 +1,38 @@
+Measured serving HPA experiment
+Date: 2026-09-12
+Context: kind-fraud-scale
+Namespace: fraud-scale
+HPA target: 70% CPU
+Minimum replicas: 2
+Maximum replicas: 5
+Load: eight concurrent in-cluster clients repeatedly requested http://serving:8000/summary
+
+LOCAL TIME  CPU/TARGET  HPA STATUS REPLICAS  DEPLOYMENT CURRENT/READY  OBSERVATION
+20:56:45    58%/70%     2                    2/2                       baseline
+20:57:00    727%/70%    2                    4/2                       scale-up requested
+20:57:16    874%/70%    4                    5/4                       maximum requested
+20:57:41    652%/70%    5                    5/5                       peak, all five Ready
+21:00:17    24%/70%     5                    5/5                       load stopped; stabilization
+21:04:38    25%/70%     5                    5/5                       ScaleDownStabilized
+21:05:36    40%/70%     3                    3/3                       automatic scale-down
+
+PEAK PODS
+NAME                       READY   RESTARTS
+serving-6fdc749cc8-2x4kf   true    0
+serving-6fdc749cc8-hj5x7   true    0
+serving-6fdc749cc8-j5hb9   true    0
+serving-6fdc749cc8-jtchx   true    0
+serving-6fdc749cc8-s7tbt   true    0
+
+PEAK CPU
+serving-6fdc749cc8-2x4kf   498m
+serving-6fdc749cc8-hj5x7   520m
+serving-6fdc749cc8-j5hb9   749m
+serving-6fdc749cc8-jtchx   323m
+serving-6fdc749cc8-s7tbt   378m
+
+API DURING PEAK AND AFTER SCALE-DOWN
+{"processed":221,"flagged":32,"fraud_rate":0.1448}
+
+The load process was stopped before observing scale-down. The HPA reduced the Deployment
+automatically; no manual replica change was used.

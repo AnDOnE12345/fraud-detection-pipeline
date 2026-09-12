@@ -401,6 +401,10 @@ Run the four `docker build` commands from the local quick start on this machine,
 ```powershell
 kind create cluster --name fraud-scale --wait 5m
 kind load docker-image local/fraud-producer:dev local/fraud-processor:dev local/fraud-serving:dev local/fraud-ui:dev --name fraud-scale
+kubectl --context kind-fraud-scale apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.9.0/components.yaml
+kubectl --context kind-fraud-scale -n kube-system patch deployment metrics-server --type=json --patch-file deploy/kind/metrics-server-patch.json
+kubectl --context kind-fraud-scale -n kube-system rollout status deployment/metrics-server --timeout=240s
+kubectl --context kind-fraud-scale top nodes
 helm upgrade --install fraud-pipeline deploy/helm/fraud-pipeline --kube-context kind-fraud-scale --namespace fraud-scale --create-namespace -f deploy/helm/fraud-pipeline/values-scale.yaml --wait --timeout 10m
 kubectl --context kind-fraud-scale -n fraud-scale get pods -o wide
 kubectl --context kind-fraud-scale -n fraud-scale get hpa,statefulset,deployment,pvc
@@ -410,8 +414,9 @@ kubectl --context kind-fraud-scale -n fraud-scale port-forward svc/ui 8081:8080
 Open `http://localhost:8081` for the scale deployment. Its explicit context selects the separate
 cluster; the namespace alone does not do that. For Minikube, use `minikube image load`; for k3d, use
 `k3d image import`; for a remote cluster, push images to its registry and override `images.*`. Each
-target cluster needs a default StorageClass. Install metrics-server before claiming measured HPA
-growth; the verified `kind` run demonstrates the HPA minimum replicas but not CPU-driven growth.
+target cluster needs a default StorageClass. The committed JSON patch enables kubelet collection
+for the local kind node's development certificate; do not use insecure kubelet TLS as a production
+default. Wait until `kubectl top nodes` succeeds before evaluating HPA values.
 
 To enable lag-based processor scaling, install the KEDA operator first, then pass
 `--set keda.enabled=true --set keda.processor.minReplicaCount=2` in addition to the same scale values
@@ -572,10 +577,29 @@ The three records occupy consecutive Kafka offsets 39-41. After the experiment, 
 The exact transaction IDs, timestamps, offsets and flags are in the
 [late-data result](docs/evidence/recovery-2026-09-12/late-data.json).
 
+### Measured HPA scale cycle - 2026-09-12
+
+Metrics Server 0.9.0 supplied resource metrics to the existing `serving-hpa`. Eight concurrent
+in-cluster clients repeatedly requested the real `/summary` endpoint. This raised average serving
+CPU from 58% to 874% against the 70% target. HPA increased the Deployment from two replicas to its
+configured maximum of five; all five became Ready with zero restarts and the API continued to
+return 221 processed and 32 flagged payments.
+
+| Local time | CPU / target | Serving replicas | Interpretation |
+| --- | --- | ---: | --- |
+| 20:56:45 | 58% / 70% | 2 | Baseline |
+| 20:57:16 | 874% / 70% | 4, with 5 desired | Scale-up in progress |
+| 20:57:41 | 652% / 70% | 5 Ready | Configured maximum reached |
+| 21:00:17 | 24% / 70% | 5 | Load stopped; scale-down stabilization |
+| 21:05:36 | 40% / 70% | 3 Ready | Automatic scale-down observed |
+
+No replica count was changed manually. The exact timeline, peak pod list, per-pod CPU and API
+result are preserved in the [HPA evidence](docs/evidence/hpa-2026-09-12/timeline.txt).
+
 ### Remaining optional evidence
 
 The required distributed topology and end-to-end flow are now captured. Additional evidence can
-strengthen the bonus claim: measured HPA or KEDA replica growth under controlled load. From
+strengthen the bonus claim further: processor KEDA growth from measured Kafka lag. From
 PowerShell, `./scripts/capture-evidence.ps1 -Namespace fraud-scale -OutputDirectory <directory>`
 collects real cluster, broker, partition, processor and API outputs; screenshots must likewise
 come from the running deployment.
@@ -592,9 +616,9 @@ Normal restart/rebalance is covered by durable recovery, but arbitrary overlappi
 under network partitions require fencing for stronger guarantees. No global atomic snapshot across
 all Kafka partitions is claimed. Generation jobs run inside producer pods and do not survive pod
 termination. Default credentials, plaintext traffic and permissive CORS are lab-only choices.
-The distributed topology, normal processor replacement and bounded late-data behavior have been
-verified live. Further improvements include authenticated APIs, schema contracts, measured
-autoscaler response and broader failure-injection testing.
+The distributed topology, normal processor replacement, bounded late-data behavior and serving HPA
+response have been verified live. Further improvements include authenticated APIs, schema
+contracts, KEDA operator verification and broader failure-injection testing.
 
 ### Eigenanteil
 
@@ -617,9 +641,11 @@ MinIO/S3 instead of HDFS separates storage from compute, and a Python processor 
 event-time algorithm inspectable without a JVM cluster. Merchant enrichment plus stateful payment
 velocity is more demanding than a map/filter example. Additional useful features include SSE with
 fallback, explicit schema evolution, durable recovery tests, HPA/KEDA configuration and CI.
-Their value and limitations are stated here; no bonus or full score is presumed.
+The serving HPA was also exercised under controlled CPU load, including automatic scale-up and
+scale-down. Their value and limitations are stated here; no bonus or full score is presumed.
 
 Design references: [Redpanda 24.2 distributed example](https://docs.redpanda.com/streaming/24.2/console/quickstart/),
 [MinIO pool expansion](https://min.io/docs/minio/linux/operations/install-deploy-manage/expand-minio-deployment.html),
-[Kubernetes StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/).
+[Kubernetes StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/),
+[Metrics Server](https://github.com/kubernetes-sigs/metrics-server).
 The code, configuration and evidence needed for assessment are included locally.
