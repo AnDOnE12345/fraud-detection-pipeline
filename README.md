@@ -456,7 +456,9 @@ git archive --format=zip --output=fraud-detection-pipeline.zip HEAD
 ```
 
 Inspect the ZIP: README, sources, chart, CSV and embedded images must all be present. External links
-are supplementary, not required evidence. `git archive` excludes `.git` and uncommitted files.
+are supplementary, not required evidence. `git archive` excludes `.git`, uncommitted files and the
+superseded internal audit material marked `export-ignore` in `.gitattributes`; those historical
+files remain available in Git but cannot be mistaken for the current submission status.
 
 ## 10. Wesentliche Codeabschnitte
 

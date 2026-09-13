@@ -1,0 +1,9 @@
+# Keep internal review notes in Git history without placing stale findings in the submission archive.
+/docs/compliance-review-ru.md export-ignore
+/docs/review-2026-09-10-ru.md export-ignore
+/docs/evidence/review-2026-09-10 export-ignore
+/docs/evidence/review-2026-09-10/** export-ignore
+/tasks export-ignore
+/tasks/** export-ignore
+/.smart-pdf-cache export-ignore
+/.smart-pdf-cache/** export-ignore
