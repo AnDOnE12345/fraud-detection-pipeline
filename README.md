@@ -481,10 +481,10 @@ files remain available in Git but cannot be mistaken for the current submission 
 All 22 Python tests passed on 2026-09-13: producer 9, processor 10 and serving 3, including
 a real local Delta write/read/restart/replay test. All six Helm topology/configuration checks were
 also rerun successfully after the KEDA DNS fix. GitHub Actions run
-[`34713364284`](https://github.com/AnDOnE12345/fraud-detection-pipeline/actions/runs/34713364284)
-completed successfully for commit `2082129`: three Python test jobs, Helm rendering and all four
+[`34747485127`](https://github.com/AnDOnE12345/fraud-detection-pipeline/actions/runs/34747485127)
+completed successfully for code commit `d03fa5a`: three Python test jobs, Helm rendering and all four
 container builds passed. The same result is retained for offline review in
-[`ci-2026-09-12.json`](docs/evidence/ci-2026-09-12.json). CI is supporting build evidence, not a
+[`ci-2026-09-13.json`](docs/evidence/ci-2026-09-13.json). CI is supporting build evidence, not a
 substitute for the runtime demonstrations below.
 
 ### Fresh distributed scaling run — 2026-09-12
