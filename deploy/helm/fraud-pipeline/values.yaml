@@ -57,6 +57,7 @@ processor:
   replicas: 1
   windowSeconds: "60"
   allowedLatenessSeconds: "120"
+  maxFutureSkewSeconds: "300"
   flushEvery: "25"
   highAmount: "800"
   riskThreshold: "0.7"

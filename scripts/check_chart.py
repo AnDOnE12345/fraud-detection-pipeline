@@ -24,6 +24,7 @@ def check():
             docs = render(*args)
             assert docs["StatefulSet", "kafka"]["spec"]["replicas"] == (3 if scale else 1)
             assert docs["StatefulSet", "minio"]["spec"]["replicas"] == (4 if scale else 1)
+            assert docs["ConfigMap", "pipeline-config"]["data"]["MAX_FUTURE_SKEW_SECONDS"] == "300"
             for app in ("kafka", "minio"):
                 assert docs["Service", f"{app}-headless"]["spec"]["clusterIP"] == "None"
                 assert docs["StatefulSet", app]["spec"]["volumeClaimTemplates"]
@@ -60,7 +61,12 @@ def check():
     invalid = subprocess.run([HELM, "template", "test", CHART, "--set", "kafka.replicationFactor=3"],
                              capture_output=True, text=True)
     assert invalid.returncode != 0
-    print("PASS pool expansion and invalid replication factor rejection")
+    invalid_skew = subprocess.run(
+        [HELM, "template", "test", CHART, "--set", "processor.maxFutureSkewSeconds=-1"],
+        capture_output=True, text=True,
+    )
+    assert invalid_skew.returncode != 0
+    print("PASS pool expansion and invalid replication/skew rejection")
 
 
 if __name__ == "__main__":

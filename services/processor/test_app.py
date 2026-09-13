@@ -82,6 +82,22 @@ class RecoveryTest(TestCase):
         self.assertEqual(a["event_time"], b["event_time"])
         self.assertEqual(a["event_time_fallback"], 1)
 
+    def test_far_future_time_uses_kafka_timestamp_without_advancing_watermark(self):
+        state = WindowState()
+        kafka_timestamp = int(self.at.timestamp() * 1000)
+        future = enrich(
+            {**self.event, "event_time": (self.at + timedelta(days=1)).isoformat()},
+            0, 0, kafka_timestamp, {}, state,
+        )
+        normal = enrich(
+            {**self.event, "event_time": (self.at + timedelta(seconds=1)).isoformat()},
+            0, 1, kafka_timestamp + 1000, {}, state,
+        )
+
+        self.assertEqual(future["event_time"], self.at.isoformat())
+        self.assertEqual(future["event_time_fallback"], 1)
+        self.assertEqual(normal["velocity_excluded"], 0)
+
     def test_delta_roundtrip_restart_and_replay(self):
         with TemporaryDirectory() as folder:
             with patch("app.partition_path", return_value=str(Path(folder) / "table")):

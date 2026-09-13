@@ -14,6 +14,7 @@ data:
   LAKE_PREFIX: {{ .Values.storage.prefix | quote }}
   WINDOW_SECONDS: {{ .Values.processor.windowSeconds | quote }}
   ALLOWED_LATENESS_SECONDS: {{ .Values.processor.allowedLatenessSeconds | quote }}
+  MAX_FUTURE_SKEW_SECONDS: {{ .Values.processor.maxFutureSkewSeconds | quote }}
   FLUSH_EVERY: {{ .Values.processor.flushEvery | quote }}
   STREAM_POLL_MS: {{ .Values.serving.streamPollMs | quote }}
   SNAPSHOT_CACHE_MS: {{ .Values.serving.snapshotCacheMs | quote }}

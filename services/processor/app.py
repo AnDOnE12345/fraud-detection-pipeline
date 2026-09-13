@@ -29,6 +29,7 @@ RISK_THRESHOLD = float(os.getenv("RISK_THRESHOLD", "0.7"))
 VELOCITY_THRESHOLD = int(os.getenv("VELOCITY_THRESHOLD", "10"))
 WINDOW_DURATION = int(os.getenv("WINDOW_SECONDS", "60"))
 ALLOWED_LATENESS = int(os.getenv("ALLOWED_LATENESS_SECONDS", "120"))
+MAX_FUTURE_SKEW = int(os.getenv("MAX_FUTURE_SKEW_SECONDS", "300"))
 FLUSH_EVERY = int(os.getenv("FLUSH_EVERY", "25"))
 STORAGE_OPTIONS = {
     "AWS_ENDPOINT_URL": os.getenv("S3_ENDPOINT", "http://localhost:9000"),
@@ -62,6 +63,14 @@ def parse_event_time(value: str | None, fallback: datetime | None = None) -> tup
         return parsed.astimezone(timezone.utc), False
     except (AttributeError, TypeError, ValueError):
         return fallback or datetime.now(timezone.utc), True
+
+
+def resolve_event_time(value: str | None, kafka_time: datetime) -> tuple[datetime, bool]:
+    """Use deterministic Kafka time for invalid or implausibly future event time."""
+    parsed, used_fallback = parse_event_time(value, kafka_time)
+    if parsed > kafka_time + timedelta(seconds=MAX_FUTURE_SKEW):
+        return kafka_time, True
+    return parsed, used_fallback
 
 
 def load_merchants(path: str) -> dict:
@@ -133,7 +142,7 @@ class WindowState:
 def enrich(event: dict, partition: int, offset: int, timestamp: int,
            merchants: dict, state: WindowState) -> dict:
     fallback = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
-    at, used_fallback = parse_event_time(event.get("event_time"), fallback)
+    at, used_fallback = resolve_event_time(event.get("event_time"), fallback)
     merchant_id = str(event.get("merchant_id", "unknown"))
     merchant = merchants.get(merchant_id, {
         "merchant_category": "unknown", "merchant_country": "unknown", "merchant_risk": 0.0})
