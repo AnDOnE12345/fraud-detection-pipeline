@@ -57,6 +57,12 @@ jobs:
       - name: Render Helm chart
         run: python scripts/check_chart.py
 
+      - name: Lint Helm chart
+        run: helm lint deploy/helm/fraud-pipeline
+
+      - name: Validate README and archive layout
+        run: python scripts/check_submission.py
+
   docker-build:
     runs-on: ubuntu-latest
     strategy:

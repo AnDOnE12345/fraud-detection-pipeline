@@ -119,7 +119,9 @@ facts by window and merchant category, sums flags and computes the mean score ac
 partitions. There is no last-snapshot-wins selection. Late arrivals cannot replace an old complete
 aggregate with `total=1`; accepted late records contribute normally and too-late records are excluded.
 
-Missing/invalid timestamps use the Kafka record timestamp and set `event_time_fallback=1`.
+Missing/invalid timestamps and timestamps more than five minutes ahead of the Kafka record time use
+that deterministic Kafka timestamp and set `event_time_fallback=1`. The configurable
+`MAX_FUTURE_SKEW_SECONDS` guard prevents one untrusted event from poisoning the partition watermark.
 `POST /transactions` accepts an optional string `event_time` for late-data demonstrations.
 Kafka coordinates `(source_topic, source_partition, source_offset)` identify replay duplicates;
 two separately published payments with the same application transaction ID are not deduplicated.
@@ -148,8 +150,9 @@ no separate persistent Gold table in v2.
 The explicit [Arrow schema](services/processor/app.py) fixes strings, float64 values and int64
 flags/offsets even when a batch contains null coordinates. Event/window times are UTC ISO-8601
 strings intentionally, not native Arrow timestamps. `lat`, `lon`, `user_id`, `country` may be null;
-the remaining schema fields are non-nullable. Writes enable schema merge for additive evolution;
-semantic rule changes require a new prefix and replay, not just schema merge.
+the remaining schema fields are non-nullable. Writes permit a deliberately updated Arrow schema to
+add nullable fields, but arbitrary input fields are not accepted and no live schema-evolution demo is
+claimed. Semantic rule changes require a new prefix and replay, not just schema merge.
 
 Delta was selected over plain Parquet for atomic commits and versioned snapshots. A Lakehouse
 keeps object storage independent of replaceable processors/readers and supports evolving event
@@ -418,11 +421,38 @@ target cluster needs a default StorageClass. The committed JSON patch enables ku
 for the local kind node's development certificate; do not use insecure kubelet TLS as a production
 default. Wait until `kubectl top nodes` succeeds before evaluating HPA values.
 
-To enable lag-based processor scaling, install the KEDA operator first, then pass
-`--set keda.enabled=true --set keda.processor.minReplicaCount=2` in addition to the same scale values
-file. Without that override, KEDA's minimum is 1; `processor.replicas=2` applies only when KEDA is
+To enable lag-based processor scaling, install the same tested KEDA 2.20.2 release and wait for its
+operator:
+
+```bash
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo update
+helm upgrade --install keda kedacore/keda --version 2.20.2 \
+  --namespace keda --create-namespace --wait --timeout 5m
+kubectl -n keda rollout status deployment/keda-operator --timeout=180s
+```
+
+Enable and inspect the scaler with explicit cluster and namespace selection:
+
+```bash
+helm upgrade fraud-pipeline deploy/helm/fraud-pipeline \
+  --kube-context kind-fraud-scale --namespace fraud-scale --reuse-values \
+  --set keda.enabled=true --set keda.processor.minReplicaCount=2 --wait --timeout 10m
+kubectl --context kind-fraud-scale -n fraud-scale get scaledobject,hpa,pods
+```
+
+Without that minimum override, KEDA's minimum is 1; `processor.replicas=2` applies only when KEDA is
 disabled. Autoscaler-managed Deployments omit static replicas so Helm does not overwrite an
-autoscaler's decision.
+autoscaler's decision. Restore the verified two-processor configuration after the experiment:
+
+```bash
+helm upgrade fraud-pipeline deploy/helm/fraud-pipeline \
+  --kube-context kind-fraud-scale --namespace fraud-scale --reuse-values \
+  --set keda.enabled=false --set processor.replicas=2 --wait --timeout 10m
+helm uninstall keda --namespace keda
+```
+
+Omit the last command if another workload in the cluster still uses the KEDA operator.
 
 For pool expansion of an already distributed demo, use `helm upgrade` with the same release,
 chart, context and namespace, adding `--reuse-values --set minio.poolCount=2`. This adds four
@@ -442,6 +472,8 @@ python -m unittest discover -s services/processor -p 'test_*.py'
 python -m unittest discover -s services/serving -p 'test_*.py'
 pip install PyYAML==6.0.3
 python scripts/check_chart.py
+helm lint deploy/helm/fraud-pipeline
+python scripts/check_submission.py
 ```
 
 On Windows, delta-rs 0.24 requires an ASCII temporary path for its local-storage round-trip test.
@@ -464,23 +496,23 @@ files remain available in Git but cannot be mistaken for the current submission 
 
 | File / symbol | Responsibility |
 | --- | --- |
-| [producer/app.py](services/producer/app.py): `_publish`, `submit_transaction`, `simulate` | Checks broker acknowledgement, accepts manual payments and schedules synthetic input. |
-| [processor/app.py](services/processor/app.py): `enrich`, `WindowState`, `recover`, `process_batch` | Enrichment, bounded event-time features, durable-state reconstruction and atomic Delta output. |
-| [serving/app.py](services/serving/app.py): `_read`, `category_stats`, `_cached_dashboard_snapshot`, `stream` | Combines partition facts, computes Gold views and pushes changed snapshots. |
-| [UI JavaScript](services/ui/html/app.js) | Forms, reason filters and SSE/polling integration. |
-| [nginx configuration](services/ui/nginx.conf) | Same-origin API routes and unbuffered SSE. |
-| [apps.yaml](deploy/helm/fraud-pipeline/templates/apps.yaml) | Application Deployments, topic initialization, Services and probes. |
-| [kafka.yaml](deploy/helm/fraud-pipeline/templates/kafka.yaml), [minio.yaml](deploy/helm/fraud-pipeline/templates/minio.yaml) | Stateful workloads, DNS identities, persistent storage and distributed topology. |
-| [HPA](deploy/helm/fraud-pipeline/templates/hpa.yaml), [KEDA](deploy/helm/fraud-pipeline/templates/keda.yaml) | CPU-based stateless scaling and optional Kafka-lag scaling. |
-| [chart checks](scripts/check_chart.py), [evidence capture](scripts/capture-evidence.ps1) | Automated manifest verification and collection of genuine cluster/API outputs. |
+| [producer/app.py, lines 115-263](services/producer/app.py#L115-L263): `_publish`, `submit_transaction`, `simulate` | Checks broker acknowledgement, accepts manual payments and schedules synthetic input. |
+| [processor/app.py, lines 68-204](services/processor/app.py#L68-L204): `resolve_event_time`, `WindowState`, `enrich`, `recover`, `process_batch` | Timestamp validation, bounded event-time features, durable-state reconstruction and atomic Delta output. |
+| [serving/app.py, lines 75-247](services/serving/app.py#L75-L247): `_read`, `category_stats`, `_cached_dashboard_snapshot`, `stream` | Combines partition facts, computes Gold views and pushes changed snapshots. |
+| [UI JavaScript, lines 87-332](services/ui/html/app.js#L87-L332) | Forms, reason filters and SSE/polling integration. |
+| [nginx configuration, lines 8-41](services/ui/nginx.conf#L8-L41) | Same-origin API routes and unbuffered SSE. |
+| [apps.yaml, lines 1-241](deploy/helm/fraud-pipeline/templates/apps.yaml#L1-L241) | Application Deployments, topic initialization, Services and probes. |
+| [kafka.yaml, lines 1-97](deploy/helm/fraud-pipeline/templates/kafka.yaml#L1-L97), [minio.yaml, lines 1-152](deploy/helm/fraud-pipeline/templates/minio.yaml#L1-L152) | Stateful workloads, DNS identities, persistent storage and distributed topology. |
+| [HPA, lines 1-68](deploy/helm/fraud-pipeline/templates/hpa.yaml#L1-L68), [KEDA, lines 1-28](deploy/helm/fraud-pipeline/templates/keda.yaml#L1-L28) | CPU-based stateless scaling and optional Kafka-lag scaling. |
+| [chart checks](scripts/check_chart.py), [submission checks](scripts/check_submission.py), [evidence capture](scripts/capture-evidence.ps1) | Manifest invariants, offline package checks and collection of genuine cluster/API outputs. |
 
 ## 11. Screenshots und Nachweise
 
 ### Current verification status
 
-All 22 Python tests passed on 2026-09-13: producer 9, processor 10 and serving 3, including
-a real local Delta write/read/restart/replay test. All six Helm topology/configuration checks were
-also rerun successfully after the KEDA DNS fix. GitHub Actions run
+All 23 Python tests passed locally on 2026-09-13: producer 9, processor 11 and serving 3, including
+a real Delta write/read/restart/replay test and the future-timestamp watermark regression. All six
+Helm topology/configuration checks also passed. The preceding GitHub Actions baseline run
 [`34747485127`](https://github.com/AnDOnE12345/fraud-detection-pipeline/actions/runs/34747485127)
 completed successfully for code commit `d03fa5a`: three Python test jobs, Helm rendering and all four
 container builds passed. The same result is retained for offline review in
@@ -643,8 +675,9 @@ inputs, timestamps, metrics and final state are in the
 Fraud detection is rule-based, not ML. Partition snapshots are read fully during recovery and query;
 large datasets need filtered reads, checkpoints, compaction and an incremental serving store.
 Event-time windows are arrival-time snapshots and do not retroactively revise previous velocity
-alerts. A far-future input advances its partition watermark; timestamp validation policy should
-be strengthened for untrusted producers. Kafka retention limits raw replay history.
+alerts. Event times more than five minutes ahead of Kafka time fall back deterministically; the
+prototype does not attempt clock correction within that accepted skew. Kafka retention limits raw
+replay history.
 
 Normal restart/rebalance is covered by durable recovery, but arbitrary overlapping stale writers
 under network partitions require fencing for stronger guarantees. No global atomic snapshot across
@@ -674,7 +707,8 @@ screenshots. This excerpt is included because a submission ZIP does not carry th
 MinIO/S3 instead of HDFS separates storage from compute, and a Python processor makes the
 event-time algorithm inspectable without a JVM cluster. Merchant enrichment plus stateful payment
 velocity is more demanding than a map/filter example. Additional useful features include SSE with
-fallback, explicit schema evolution, durable recovery tests, HPA/KEDA configuration and CI.
+fallback, an explicit schema prepared for controlled additive evolution, durable recovery tests,
+HPA/KEDA configuration and CI.
 The serving HPA was also exercised under controlled CPU load, including automatic scale-up and
 scale-down. KEDA lag scaling and its cross-namespace Kafka DNS path were also verified live. Their
 value and limitations are stated here; no bonus or full score is presumed.
