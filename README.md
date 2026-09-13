@@ -478,9 +478,12 @@ are supplementary, not required evidence. `git archive` excludes `.git` and unco
 
 All 22 Python tests passed on 2026-09-12: producer 9, processor 10 and serving 3, including
 a real local Delta write/read/restart/replay test. All five Helm topology/configuration checks were
-also rerun successfully before deployment. The current evidence update was verified locally; CI
-status is not used as runtime proof here. The baseline `fraud-lab` evidence below is retained,
-followed by the fresh distributed scaling run.
+also rerun successfully before deployment. GitHub Actions run
+[`34713364284`](https://github.com/AnDOnE12345/fraud-detection-pipeline/actions/runs/34713364284)
+completed successfully for commit `2082129`: three Python test jobs, Helm rendering and all four
+container builds passed. The same result is retained for offline review in
+[`ci-2026-09-12.json`](docs/evidence/ci-2026-09-12.json). CI is supporting build evidence, not a
+substitute for the runtime demonstrations below.
 
 ### Fresh distributed scaling run — 2026-09-12
 
