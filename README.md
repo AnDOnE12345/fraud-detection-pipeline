@@ -167,8 +167,9 @@ The explicit [Arrow schema](services/processor/app.py) fixes strings, float64 va
 flags/offsets even when a batch contains null coordinates. Event/window times are UTC ISO-8601
 strings intentionally, not native Arrow timestamps. `lat`, `lon`, `user_id`, `country` may be null;
 the remaining schema fields are non-nullable. Writes permit a deliberately updated Arrow schema to
-add nullable fields, but arbitrary input fields are not accepted and no live schema-evolution demo is
-claimed. Semantic rule changes require a new prefix and replay, not just schema merge.
+add nullable fields; an automated Delta migration test starts with a legacy schema, adds `country`,
+and verifies old and new rows. Arbitrary input fields are not accepted. Semantic rule changes require
+a new prefix and replay, not just schema merge.
 
 Delta was selected over plain Parquet for atomic commits and versioned snapshots. A Lakehouse
 keeps object storage independent of replaceable processors/readers and supports evolving event
@@ -494,7 +495,8 @@ python scripts/check_submission.py
 
 On Windows, delta-rs 0.24 requires an ASCII temporary path for its local-storage round-trip test.
 The deployment itself uses S3 paths. The tests cover broker failures, restart/replay, lateness,
-inactive-card cleanup, actual Delta round-trip and aggregation across partitions. Chart checks
+inactive-card cleanup, actual Delta round-trip, additive schema evolution and aggregation across
+partitions. Chart checks
 cover default/scale, both KEDA modes, pool expansion and invalid configuration rejection.
 
 After committing all final code and real evidence:
@@ -526,8 +528,8 @@ files remain available in Git but cannot be mistaken for the current submission 
 
 ### Current verification status
 
-All 23 Python tests passed locally on 2026-09-13: producer 9, processor 11 and serving 3, including
-a real Delta write/read/restart/replay test and the future-timestamp watermark regression. All six
+All 24 Python tests passed locally on 2026-09-13: producer 9, processor 12 and serving 3, including
+real Delta restart/replay and schema-evolution tests plus the future-timestamp regression. All six
 Helm topology/configuration checks also passed. The preceding GitHub Actions baseline run
 [`34747485127`](https://github.com/AnDOnE12345/fraud-detection-pipeline/actions/runs/34747485127)
 completed successfully for code commit `d03fa5a`: three Python test jobs, Helm rendering and all four
@@ -723,7 +725,7 @@ screenshots. This excerpt is included because a submission ZIP does not carry th
 MinIO/S3 instead of HDFS separates storage from compute, and a Python processor makes the
 event-time algorithm inspectable without a JVM cluster. Merchant enrichment plus stateful payment
 velocity is more demanding than a map/filter example. Additional useful features include SSE with
-fallback, an explicit schema prepared for controlled additive evolution, durable recovery tests,
+fallback, verified controlled additive schema evolution, durable recovery tests,
 HPA/KEDA configuration and CI.
 The serving HPA was also exercised under controlled CPU load, including automatic scale-up and
 scale-down. KEDA lag scaling and its cross-namespace Kafka DNS path were also verified live. Their

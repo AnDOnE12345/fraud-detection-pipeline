@@ -2,11 +2,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import patch
-from deltalake import DeltaTable
 from unittest import TestCase
+from unittest.mock import patch
 
-from app import WindowState, enrich, fixed_window, fraud_signals, parse_event_time, process_batch, recover
+import pyarrow as pa
+from deltalake import DeltaTable
+from deltalake.writer import write_deltalake
+
+from app import (
+    SCHEMA, WindowState, enrich, fixed_window, fraud_signals, parse_event_time,
+    process_batch, recover,
+)
 
 
 class ProcessorRulesTest(TestCase):
@@ -121,3 +127,34 @@ class RecoveryTest(TestCase):
                     self.assertEqual(len(frame), 11)
                     self.assertEqual(last["velocity_alert"], 1)
                     self.assertEqual(last["tx_count"], 11)
+
+    def test_delta_writer_adds_nullable_field_to_legacy_schema(self):
+        with TemporaryDirectory() as folder:
+            table_path = str(Path(folder) / "table")
+            with patch("app.partition_path", return_value=table_path), patch("builtins.print"):
+                legacy_row = self.row(WindowState(), 0)
+                legacy_row.pop("country")
+                legacy_schema = pa.schema(field for field in SCHEMA if field.name != "country")
+                write_deltalake(
+                    table_path,
+                    pa.Table.from_pylist([legacy_row], schema=legacy_schema),
+                    mode="append",
+                    partition_by=["event_date"],
+                )
+                message = SimpleNamespace(
+                    value={
+                        **self.event,
+                        "country": "DE",
+                        "event_time": (self.at + timedelta(seconds=1)).isoformat(),
+                    },
+                    partition=0,
+                    offset=1,
+                    timestamp=int((self.at + timedelta(seconds=1)).timestamp() * 1000),
+                )
+
+                process_batch([message], {}, WindowState(), 0)
+
+                frame = DeltaTable(table_path).to_pandas().sort_values("source_offset")
+                self.assertIn("country", frame.columns)
+                self.assertTrue(frame["country"].isna().iloc[0])
+                self.assertEqual(frame.iloc[1]["country"], "DE")
