@@ -1,0 +1,41 @@
+Context: kind-fraud-scale
+Namespace: fraud-scale
+KEDA version: 2.20.2
+Kafka partitions: 6
+KEDA min/max replicas: 2/6
+Kafka lag threshold: 20
+
+CONTROLLED INPUT
+Backlog generation started UTC: 2026-09-13T08:11:24.7988224Z
+Serving before: {"processed":1421,"flagged":152,"fraud_rate":0.107}
+Producer response: {"accepted":true,"scheduled":600,"topic":"transactions","pace_ms":0,"estimated_seconds":0.0,"planned":{"normal":540,"high_amount":20,"high_risk_merchant":20,"both":20,"velocity_burst":0}}
+Processor replicas were temporarily paused at zero only to create a known backlog.
+
+BACKLOG BEFORE UNPAUSE
+GROUP        fraud-processor-v2
+STATE        Empty
+MEMBERS      0
+TOTAL-LAG    600
+Partition lag: p0=104 p1=83 p2=104 p3=96 p4=97 p5=116
+
+KEDA SCALE TIMELINE
+2026-09-13T08:12:00.4237228Z  Pause removed; lag=600; Deployment desired=2, Ready=0
+2026-09-13T08:12:07.9463089Z  lag=475; Deployment desired=2, Ready=0
+2026-09-13T08:12:14.7294420Z  lag=175; two processors Ready; two additional pods starting
+2026-09-13T08:12:21.6934407Z  KEDA metric=60/20 avg; Deployment desired=4, Ready=2; lag=0
+2026-09-13T08:12:34.8133044Z  four processors Ready; HPA subsequently requested six; lag=0
+
+The two additional pods were Pending. Kubernetes events reported `Insufficient memory` on the
+single node; they were removed when the chart was restored to its two-replica steady state.
+
+The 600-event backlog reached zero 21.27 seconds after unpause, an observed catch-up rate of
+28.2 events/s. This bounded laptop result includes scaler reaction and pod startup; it is not a
+production capacity claim and is not directly comparable to the illustrative 5,000 events/s
+design point.
+
+FINAL STEADY STATE (captured 2026-09-13T08:15:07.7141421Z)
+KEDA disabled after the reversible experiment.
+Processor Deployment: desired=2, Ready=2
+Consumer group: Stable, members=2, total lag=0
+Serving: {"processed":2021,"flagged":212,"fraud_rate":0.1049}
+Delta audit: raw_rows=2021 distinct_coordinates=2021 duplicate_coordinates=0

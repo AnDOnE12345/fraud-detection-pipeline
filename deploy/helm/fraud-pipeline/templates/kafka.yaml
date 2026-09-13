@@ -31,10 +31,10 @@ spec:
                 --memory=512M --reserve-memory=0M --check=false \
                 --node-id="$NODE_ID" \
                 --kafka-addr=PLAINTEXT://0.0.0.0:9092 \
-                --advertise-kafka-addr="PLAINTEXT://${HOSTNAME}.kafka-headless:9092" \
+                --advertise-kafka-addr="PLAINTEXT://${HOSTNAME}.kafka-headless.{{ .Release.Namespace }}.svc.cluster.local:9092" \
                 --rpc-addr=0.0.0.0:33145 \
-                --advertise-rpc-addr="${HOSTNAME}.kafka-headless:33145" \
-                --seeds=kafka-0.kafka-headless:33145
+                --advertise-rpc-addr="${HOSTNAME}.kafka-headless.{{ .Release.Namespace }}.svc.cluster.local:33145" \
+                --seeds=kafka-0.kafka-headless.{{ .Release.Namespace }}.svc.cluster.local:33145
           ports:
             - containerPort: 9092
               name: kafka

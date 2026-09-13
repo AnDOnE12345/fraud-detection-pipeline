@@ -15,7 +15,13 @@ spec:
   triggers:
     - type: kafka
       metadata:
+        # The scaler runs in the KEDA operator namespace, so the application's
+        # same-namespace short name (kafka:9092) is not resolvable there.
+        {{- if eq .Values.kafka.bootstrap "kafka:9092" }}
+        bootstrapServers: {{ printf "kafka.%s.svc.cluster.local:9092" .Release.Namespace | quote }}
+        {{- else }}
         bootstrapServers: {{ .Values.kafka.bootstrap | quote }}
+        {{- end }}
         topic: {{ .Values.kafka.topic | quote }}
         consumerGroup: {{ .Values.keda.processor.consumerGroup | quote }}
         lagThreshold: {{ .Values.keda.processor.lagThreshold | quote }}

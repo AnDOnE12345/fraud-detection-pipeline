@@ -478,9 +478,9 @@ files remain available in Git but cannot be mistaken for the current submission 
 
 ### Current verification status
 
-All 22 Python tests passed on 2026-09-12: producer 9, processor 10 and serving 3, including
-a real local Delta write/read/restart/replay test. All five Helm topology/configuration checks were
-also rerun successfully before deployment. GitHub Actions run
+All 22 Python tests passed on 2026-09-13: producer 9, processor 10 and serving 3, including
+a real local Delta write/read/restart/replay test. All six Helm topology/configuration checks were
+also rerun successfully after the KEDA DNS fix. GitHub Actions run
 [`34713364284`](https://github.com/AnDOnE12345/fraud-detection-pipeline/actions/runs/34713364284)
 completed successfully for commit `2082129`: three Python test jobs, Helm rendering and all four
 container builds passed. The same result is retained for offline review in
@@ -616,13 +616,28 @@ return 221 processed and 32 flagged payments.
 No replica count was changed manually. The exact timeline, peak pod list, per-pod CPU and API
 result are preserved in the [HPA evidence](docs/evidence/hpa-2026-09-12/timeline.txt).
 
-### Remaining optional evidence
+### Measured KEDA lag scaling and bounded catch-up - 2026-09-13
 
-The required distributed topology and end-to-end flow are now captured. Additional evidence can
-strengthen the bonus claim further: processor KEDA growth from measured Kafka lag. From
-PowerShell, `./scripts/capture-evidence.ps1 -Namespace fraud-scale -OutputDirectory <directory>`
-collects real cluster, broker, partition, processor and API outputs; screenshots must likewise
-come from the running deployment.
+KEDA 2.20.2 was temporarily installed and the chart's optional Kafka scaler was exercised against
+a controlled 600-event backlog. The live attempt exposed two cross-namespace DNS defects: both
+the scaler bootstrap address and Redpanda's advertised broker addresses used same-namespace short
+names. The chart now renders namespace-qualified service DNS names, guarded by an offline Helm
+regression check.
+
+After the fix, KEDA reported the scaler Ready and Active. Removing a temporary zero-replica pause
+started the experiment at lag 600. The lag fell to 475, then 175, then zero after 21.27 seconds.
+At the zero-lag observation the external metric was `60/20 (avg)` and the processor Deployment had
+grown from two to four desired replicas; four processors subsequently became Ready. The HPA later
+requested its maximum of six from the delayed metric, but two additional pods could not be scheduled
+because the node reported `Insufficient memory`, so no six-Ready claim is made.
+
+The bounded backlog clearance corresponds to 28.2 persisted events/s and includes scaler reaction
+and pod startup. It is not a steady-state benchmark and is not comparable to the illustrative
+5,000 events/s production design point in section 2. Serving increased from 1,421 to 2,021 records;
+the final Delta audit found 2,021 distinct Kafka coordinates and zero duplicates. The chart was
+restored to KEDA disabled with two Ready processors, a Stable two-member group and zero lag. Exact
+inputs, timestamps, metrics and final state are in the
+[KEDA evidence](docs/evidence/keda-2026-09-13/timeline.txt).
 
 ## 12. Grenzen des Prototyps und Ausblick
 
@@ -636,9 +651,9 @@ Normal restart/rebalance is covered by durable recovery, but arbitrary overlappi
 under network partitions require fencing for stronger guarantees. No global atomic snapshot across
 all Kafka partitions is claimed. Generation jobs run inside producer pods and do not survive pod
 termination. Default credentials, plaintext traffic and permissive CORS are lab-only choices.
-The distributed topology, normal processor replacement, bounded late-data behavior and serving HPA
-response have been verified live. Further improvements include authenticated APIs, schema
-contracts, KEDA operator verification and broader failure-injection testing.
+The distributed topology, normal processor replacement, full-cluster persistence, bounded late-data
+behavior, serving HPA response and KEDA lag scaling have been verified live. Further improvements
+include authenticated APIs, schema contracts and broader network-partition failure testing.
 
 ### Eigenanteil
 
@@ -662,10 +677,12 @@ event-time algorithm inspectable without a JVM cluster. Merchant enrichment plus
 velocity is more demanding than a map/filter example. Additional useful features include SSE with
 fallback, explicit schema evolution, durable recovery tests, HPA/KEDA configuration and CI.
 The serving HPA was also exercised under controlled CPU load, including automatic scale-up and
-scale-down. Their value and limitations are stated here; no bonus or full score is presumed.
+scale-down. KEDA lag scaling and its cross-namespace Kafka DNS path were also verified live. Their
+value and limitations are stated here; no bonus or full score is presumed.
 
 Design references: [Redpanda 24.2 distributed example](https://docs.redpanda.com/streaming/24.2/console/quickstart/),
 [MinIO pool expansion](https://min.io/docs/minio/linux/operations/install-deploy-manage/expand-minio-deployment.html),
 [Kubernetes StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/),
+[KEDA 2.20 scaling deployments](https://keda.sh/docs/2.20/concepts/scaling-deployments/),
 [Metrics Server](https://github.com/kubernetes-sigs/metrics-server).
 The code, configuration and evidence needed for assessment are included locally.

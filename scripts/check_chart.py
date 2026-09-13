@@ -37,6 +37,21 @@ def check():
                         assert container["resources"]["requests"]
                         assert container["readinessProbe"] and container["livenessProbe"]
             print(f"PASS scale={scale}, keda={keda}: {len(docs)} resources")
+    namespaced = render("--namespace", "fraud-test", "--set", "keda.enabled=true")
+    trigger = namespaced["ScaledObject", "processor-kafka-lag"]["spec"]["triggers"][0]
+    bootstrap = trigger["metadata"]["bootstrapServers"]
+    assert bootstrap == "kafka.fraud-test.svc.cluster.local:9092"
+    containers = namespaced["StatefulSet", "kafka"]["spec"]["template"]["spec"]["containers"]
+    kafka_args = containers[0]["args"][0]
+    assert "${HOSTNAME}.kafka-headless.fraud-test.svc.cluster.local:9092" in kafka_args
+    assert "kafka-0.kafka-headless.fraud-test.svc.cluster.local:33145" in kafka_args
+    external = render(
+        "--namespace", "fraud-test", "--set", "keda.enabled=true",
+        "--set", "kafka.bootstrap=broker.example:9094",
+    )
+    external_trigger = external["ScaledObject", "processor-kafka-lag"]["spec"]["triggers"][0]
+    assert external_trigger["metadata"]["bootstrapServers"] == "broker.example:9094"
+    print("PASS KEDA and advertised brokers use namespace-qualified Kafka DNS names")
     expanded = render("-f", str(Path(CHART) / "values-scale.yaml"), "--set", "minio.poolCount=2")
     minio = expanded["StatefulSet", "minio"]["spec"]
     assert minio["replicas"] == 8
