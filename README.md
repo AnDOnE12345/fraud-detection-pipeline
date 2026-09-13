@@ -2,6 +2,11 @@
 
 Course: Cloud Computing und Big Data - Pruefungsleistung 2026
 
+| Name | Matrikelnummer |
+| --- | --- |
+| Valentyn Mukhanov | 1528389 |
+| Veniamin Nekhoda | 6184837 |
+
 This prototype implements a Kappa payment-event pipeline with a separately deployed web UI.
 The current v2 implementation fixes recovery and cross-processor aggregation. Python tests and
 the local Kubernetes deployment have been checked; section 11 includes current UI, API, pod,
