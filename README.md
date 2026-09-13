@@ -667,8 +667,8 @@ result are preserved in the [HPA evidence](docs/evidence/hpa-2026-09-12/timeline
 
 ### Measured KEDA lag scaling and bounded catch-up - 2026-09-13
 
-KEDA 2.20.2 was temporarily installed and the chart's optional Kafka scaler was exercised against
-a controlled 600-event backlog. The live attempt exposed two cross-namespace DNS defects: both
+KEDA 2.20.2 was temporarily installed and the chart's optional Kafka scaler was first exercised
+against a controlled 600-event backlog. The live attempt exposed two cross-namespace DNS defects: both
 the scaler bootstrap address and Redpanda's advertised broker addresses used same-namespace short
 names. The chart now renders namespace-qualified service DNS names, guarded by an offline Helm
 regression check.
@@ -676,16 +676,30 @@ regression check.
 After the fix, KEDA reported the scaler Ready and Active. Removing a temporary zero-replica pause
 started the experiment at lag 600. The lag fell to 475, then 175, then zero after 21.27 seconds.
 At the zero-lag observation the external metric was `60/20 (avg)` and the processor Deployment had
-grown from two to four desired replicas; four processors subsequently became Ready. The HPA later
-requested its maximum of six from the delayed metric, but two additional pods could not be scheduled
-because the node reported `Insufficient memory`, so no six-Ready claim is made.
+grown from two to four desired replicas; four processors subsequently became Ready. That first run
+was retained as a bounded catch-up measurement.
 
 The bounded backlog clearance corresponds to 28.2 persisted events/s and includes scaler reaction
 and pod startup. It is not a steady-state benchmark and is not comparable to the illustrative
 5,000 events/s production design point in section 2. Serving increased from 1,421 to 2,021 records;
-the final Delta audit found 2,021 distinct Kafka coordinates and zero duplicates. The chart was
-restored to KEDA disabled with two Ready processors, a Stable two-member group and zero lag. Exact
-inputs, timestamps, metrics and final state are in the
+the final Delta audit found 2,021 distinct Kafka coordinates and zero duplicates.
+
+A later screenshot-focused repeat started from a stable 3,000-event backlog with zero consumers.
+At 16:43:05 the ScaledObject was `Ready=True` and `Active=True`, its external metric was `20/20
+(avg)`, the HPA reported six replicas, all six processor pods were Ready with zero restarts, and the
+Stable six-member consumer group still had 1,407 events of lag. This directly shows lag-driven
+scale-out while useful work remained.
+
+![KEDA active at 20/20 with six Ready processors and 1,407 events of lag](docs/screenshots/keda-scale-up-2026-09-13.png)
+
+The preceding repeat also captured the completed state: six Ready processors, six group members and
+zero lag. It separates successful catch-up from the active-trigger screenshot above.
+
+![KEDA catch-up complete with six Ready processors and zero lag](docs/screenshots/keda-catch-up-complete-2026-09-13.png)
+
+After the repeat, the chart was restored to KEDA disabled with two Ready processors, a Stable
+two-member group and zero lag; the temporary KEDA operator was uninstalled. Exact inputs,
+timestamps, metrics and final states are in the
 [KEDA evidence](docs/evidence/keda-2026-09-13/timeline.txt).
 
 ## 12. Grenzen des Prototyps und Ausblick

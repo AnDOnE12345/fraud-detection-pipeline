@@ -39,3 +39,26 @@ Processor Deployment: desired=2, Ready=2
 Consumer group: Stable, members=2, total lag=0
 Serving: {"processed":2021,"flagged":212,"fraud_rate":0.1049}
 Delta audit: raw_rows=2021 distinct_coordinates=2021 duplicate_coordinates=0
+
+SCREENSHOT FOLLOW-UP (local time, 2026-09-13)
+KEDA 2.20.2 was reinstalled temporarily with the same min/max replicas (2/6) and lag threshold 20.
+
+First repeat:
+- Producer API accepted 3,000 scheduled events. Some were processed while the old pods terminated;
+  the stable backlog before unpause was 2,695.
+- At 16:34:57, six processors were Ready with zero restarts, the group had six members and lag was
+  zero. The catch-up completion screenshot records this state.
+
+Clean active-scaling repeat:
+- Processor Deployment was paused at zero and the group reached Empty with zero members and lag.
+- Producer API accepted 3,000 events with pace_ms=0 and velocity burst disabled.
+- With no consumers, TOTAL-LAG reached 3,000 and remained unchanged before unpause.
+- At 16:43:05, the ScaledObject was Ready=True and Active=True. Its HPA showed 20/20 average,
+  min/max 2/6 and six replicas. Deployment readiness was 6/6; all six pods were Running with zero
+  restarts. The Kafka group was Stable with six members and TOTAL-LAG=1,407.
+- The backlog subsequently reached zero.
+
+RESTORED STATE (captured local time 2026-09-13 16:46:53)
+KEDA was disabled in the application release and its temporary operator release was uninstalled.
+Processor Deployment: desired=2, Ready=2
+Consumer group: Stable, members=2, total lag=0
