@@ -547,14 +547,6 @@ the fresh scale evidence above supersedes it for distributed topology verificati
 
 ![Local v2 deployment: all nine pods ready](docs/screenshots/pods.png)
 
-The later Deployment/HPA snapshot shows two ready serving replicas and one each for producer,
-processor and UI. The HPA targets are 70% CPU utilization, with replica ranges of 1–5 for
-producer/serving and 1–3 for UI. This snapshot was taken after the pod screenshot above, which
-shows four serving replicas. These observations document different replica counts over time;
-they do not demonstrate replica growth under a controlled load or scaling of all components.
-
-![Local Deployments and HPA: two serving replicas and configured CPU targets](docs/screenshots/scaling.png)
-
 ### Live processor recovery and late data - 2026-09-12
 
 One of the two processors, `processor-7cdbb6d877-glfwl` (UID ending `e968`), was deliberately
@@ -612,6 +604,13 @@ return 221 processed and 32 flagged payments.
 | 20:57:41 | 652% / 70% | 5 Ready | Configured maximum reached |
 | 21:00:17 | 24% / 70% | 5 | Load stopped; scale-down stabilization |
 | 21:05:36 | 40% / 70% | 3 Ready | Automatic scale-down observed |
+
+A repeat controlled capture on 2026-09-13 visibly confirms `727%/70%` CPU, the configured maximum
+of five replicas and five `1/1 Running` serving pods at the same instant. The two long-lived pods'
+restart counters come from the full-cluster restart documented above; all three pods created for
+this scale-up show zero restarts.
+
+![Serving HPA at 727% CPU with five Ready replicas](docs/screenshots/hpa-scale-up-2026-09-13.png)
 
 No replica count was changed manually. The exact timeline, peak pod list, per-pod CPU and API
 result are preserved in the [HPA evidence](docs/evidence/hpa-2026-09-12/timeline.txt).
