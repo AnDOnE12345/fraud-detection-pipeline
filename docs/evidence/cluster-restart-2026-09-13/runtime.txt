@@ -1,0 +1,57 @@
+Captured UTC: 2026-09-13T07:52:59.8650100Z
+Context: kind-fraud-scale
+Namespace: fraud-scale
+
+This snapshot was captured after Docker Desktop and the kind node had restarted.
+Restart counts below are cumulative container restart counts reported by Kubernetes.
+
+PODS AFTER DOCKER/KIND NODE RESTART
+NAME                         READY   RESTARTS   STATUS
+kafka-0                      true    2          Running
+kafka-1                      true    2          Running
+kafka-2                      true    2          Running
+minio-0                      true    2          Running
+minio-1                      true    2          Running
+minio-2                      true    2          Running
+minio-3                      true    2          Running
+processor-7cdbb6d877-4mgxt   true    2          Running
+processor-7cdbb6d877-shp25   true    2          Running
+producer-6cb54b6f59-qqgjk    true    2          Running
+producer-6cb54b6f59-zgfhd    true    2          Running
+serving-6fdc749cc8-mxgvj     true    1          Running
+serving-6fdc749cc8-s7tbt     true    2          Running
+ui-744d5cfd9b-2bz75          true    4          Running
+ui-744d5cfd9b-8jm8d          true    4          Running
+
+STATEFULSETS
+statefulset.apps/kafka   3/3 Ready
+statefulset.apps/minio   4/4 Ready
+
+PERSISTENT VOLUMES
+data-kafka-0   Bound   5Gi
+data-kafka-1   Bound   5Gi
+data-kafka-2   Bound   5Gi
+data-minio-0   Bound   10Gi
+data-minio-1   Bound   10Gi
+data-minio-2   Bound   10Gi
+data-minio-3   Bound   10Gi
+
+CONSUMER GROUP
+GROUP        fraud-processor-v2
+STATE        Stable
+MEMBERS      2
+TOTAL-LAG    0
+
+TOPIC         PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
+transactions  0          42              42              0
+transactions  1          25              25              0
+transactions  2          55              55              0
+transactions  3          32              32              0
+transactions  4          34              34              0
+transactions  5          33              33              0
+
+SERVING SUMMARY
+{"processed":221,"flagged":32,"fraud_rate":0.1448}
+
+PHYSICAL DELTA / COORDINATE AUDIT
+raw_rows=221 distinct_coordinates=221 duplicate_coordinates=0

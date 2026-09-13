@@ -194,8 +194,8 @@ The scale topology was deployed and exercised end to end on 2026-09-12. Three Re
 four distributed MinIO servers, two processors and two replicas of every stateless service were
 Ready simultaneously. The run processed 216 new events through the producer, Kafka, both processor
 replicas, Delta/MinIO and the serving/UI layer. Section 11 contains the captured runtime evidence.
-This proves the configured horizontal topology; it does not claim an HPA growth experiment under
-controlled CPU load.
+This proves the configured horizontal topology. A separate controlled CPU-load experiment also
+verified the serving HPA scale-up and scale-down cycle in section 11.
 
 ## 9. Deployment-Anleitung
 
@@ -579,6 +579,21 @@ The three records occupy consecutive Kafka offsets 39-41. After the experiment, 
 221 processed rows, while the physical/coordinate audit reported 221/221 and zero duplicates.
 The exact transaction IDs, timestamps, offsets and flags are in the
 [late-data result](docs/evidence/recovery-2026-09-12/late-data.json).
+
+### Full cluster restart and persistence - 2026-09-13
+
+After Docker Desktop and its kind node restarted, the complete distributed deployment recovered
+without reinstalling the Helm release or recreating storage. All three Kafka pods, all four MinIO
+pods, both processors, both producers, both serving replicas and both UI replicas were Ready and
+Running. Kubernetes reported nonzero cumulative restart counts for these surviving containers;
+both StatefulSets were fully Ready and all seven Kafka/MinIO PVCs remained Bound.
+
+The processor group returned to `Stable` with two members and zero lag on all six partitions.
+Serving still reported 221 processed and 32 flagged records. A direct physical Delta audit found
+221 rows, 221 distinct Kafka coordinates and zero duplicate coordinates. This verifies persistence
+across the full local cluster/runtime restart, complementing the earlier controlled replacement of
+one processor. The captured pod, StatefulSet, PVC, consumer-group, API and Delta outputs are in the
+[cluster-restart evidence](docs/evidence/cluster-restart-2026-09-13/runtime.txt).
 
 ### Measured HPA scale cycle - 2026-09-12
 
